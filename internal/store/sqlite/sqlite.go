@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"sync/atomic"
 
 	_ "modernc.org/sqlite"
@@ -20,7 +21,7 @@ type SQLiteStore struct {
 }
 
 func Open(path string) (*SQLiteStore, error) {
-	dsn := "file:" + path
+	dsn := dsnForPath(path)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
@@ -30,6 +31,13 @@ func Open(path string) (*SQLiteStore, error) {
 		return nil, err
 	}
 	return &SQLiteStore{db: db}, nil
+}
+
+func dsnForPath(path string) string {
+	u := url.URL{Path: path}
+	// Use URL path escaping so spaces are encoded, while keeping
+	// the sqlite DSN format as "file:/abs/path".
+	return "file:" + u.EscapedPath()
 }
 
 func OpenInMemory() (*SQLiteStore, error) {

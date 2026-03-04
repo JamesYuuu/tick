@@ -1,2 +1,6 @@
+# macOS
 .DS_Store
+
+# For OpenCode
 .worktrees/
+docs/plans

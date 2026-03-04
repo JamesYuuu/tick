@@ -112,7 +112,7 @@ func (s *SQLiteStore) MarkDone(ctx context.Context, id int64, doneDay domain.Day
 		return fmt.Errorf("mark done: %w", err)
 	}
 	if n == 0 {
-		return sql.ErrNoRows
+		return fmt.Errorf("mark done: id=%d: %w", id, sql.ErrNoRows)
 	}
 	return nil
 }
@@ -132,7 +132,7 @@ func (s *SQLiteStore) MarkAbandoned(ctx context.Context, id int64, abandonedDay 
 		return fmt.Errorf("mark abandoned: %w", err)
 	}
 	if n == 0 {
-		return sql.ErrNoRows
+		return fmt.Errorf("mark abandoned: id=%d: %w", id, sql.ErrNoRows)
 	}
 	return nil
 }
@@ -155,7 +155,14 @@ func (s *SQLiteStore) Postpone(ctx context.Context, id int64, newDueDay domain.D
 		return fmt.Errorf("postpone: %w", err)
 	}
 	if n == 0 {
-		// Either missing ID or not active. For now treat as invalid transition.
+		var exists int
+		err := s.db.QueryRowContext(ctx, `SELECT 1 FROM tasks WHERE id = ?`, id).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("postpone: id=%d: %w", id, sql.ErrNoRows)
+		}
+		if err != nil {
+			return fmt.Errorf("postpone: check exists: %w", err)
+		}
 		return ErrInvalidTransition
 	}
 	return nil

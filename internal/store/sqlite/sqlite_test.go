@@ -2,6 +2,9 @@ package sqlite_test
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/JamesYuuu/tick/internal/domain"
@@ -111,5 +114,124 @@ func TestSQLiteStore_BasicFlow(t *testing.T) {
 	}
 	if len(abandonedTasks2) != 0 {
 		t.Fatalf("expected abandoned list cleared after done transition, got %#v", abandonedTasks2)
+	}
+}
+
+func TestSQLiteStore_Postpone_NotFound_WrapsNoRows(t *testing.T) {
+	ctx := context.Background()
+
+	s, err := sqlite.OpenInMemory()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.Close()
+	})
+
+	id := int64(12345)
+	if err := s.Postpone(ctx, id, domain.MustParseDay("2026-03-12")); err == nil {
+		t.Fatalf("expected error")
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected errors.Is(err, sql.ErrNoRows) true, got %v", err)
+	} else if err == sql.ErrNoRows {
+		t.Fatalf("expected wrapped error, got %v", err)
+	} else if !strings.Contains(err.Error(), "postpone") {
+		t.Fatalf("expected context in error, got %v", err)
+	}
+}
+
+func TestSQLiteStore_Postpone_NotActive_ReturnsInvalidTransition(t *testing.T) {
+	ctx := context.Background()
+
+	s, err := sqlite.OpenInMemory()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.Close()
+	})
+
+	created := domain.MustParseDay("2026-03-04")
+	due := domain.MustParseDay("2026-03-10")
+	newDue := domain.MustParseDay("2026-03-12")
+
+	t.Run("done", func(t *testing.T) {
+		task, err := s.CreateTask(ctx, "x", created, due)
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		if err := s.MarkDone(ctx, task.ID, domain.MustParseDay("2026-03-05")); err != nil {
+			t.Fatalf("mark done: %v", err)
+		}
+		if err := s.Postpone(ctx, task.ID, newDue); err == nil {
+			t.Fatalf("expected error")
+		} else if !errors.Is(err, sqlite.ErrInvalidTransition) {
+			t.Fatalf("expected ErrInvalidTransition, got %v", err)
+		} else if errors.Is(err, sql.ErrNoRows) {
+			t.Fatalf("expected not to wrap sql.ErrNoRows, got %v", err)
+		}
+	})
+
+	t.Run("abandoned", func(t *testing.T) {
+		task, err := s.CreateTask(ctx, "y", created, due)
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		if err := s.MarkAbandoned(ctx, task.ID, domain.MustParseDay("2026-03-06")); err != nil {
+			t.Fatalf("mark abandoned: %v", err)
+		}
+		if err := s.Postpone(ctx, task.ID, newDue); err == nil {
+			t.Fatalf("expected error")
+		} else if !errors.Is(err, sqlite.ErrInvalidTransition) {
+			t.Fatalf("expected ErrInvalidTransition, got %v", err)
+		} else if errors.Is(err, sql.ErrNoRows) {
+			t.Fatalf("expected not to wrap sql.ErrNoRows, got %v", err)
+		}
+	})
+}
+
+func TestSQLiteStore_MarkDone_NotFound_WrapsNoRows(t *testing.T) {
+	ctx := context.Background()
+
+	s, err := sqlite.OpenInMemory()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.Close()
+	})
+
+	id := int64(12345)
+	if err := s.MarkDone(ctx, id, domain.MustParseDay("2026-03-05")); err == nil {
+		t.Fatalf("expected error")
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected errors.Is(err, sql.ErrNoRows) true, got %v", err)
+	} else if err == sql.ErrNoRows {
+		t.Fatalf("expected wrapped error, got %v", err)
+	} else if !strings.Contains(err.Error(), "mark done") {
+		t.Fatalf("expected context in error, got %v", err)
+	}
+}
+
+func TestSQLiteStore_MarkAbandoned_NotFound_WrapsNoRows(t *testing.T) {
+	ctx := context.Background()
+
+	s, err := sqlite.OpenInMemory()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.Close()
+	})
+
+	id := int64(12345)
+	if err := s.MarkAbandoned(ctx, id, domain.MustParseDay("2026-03-06")); err == nil {
+		t.Fatalf("expected error")
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected errors.Is(err, sql.ErrNoRows) true, got %v", err)
+	} else if err == sql.ErrNoRows {
+		t.Fatalf("expected wrapped error, got %v", err)
+	} else if !strings.Contains(err.Error(), "mark abandoned") {
+		t.Fatalf("expected context in error, got %v", err)
 	}
 }

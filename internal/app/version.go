@@ -1,6 +1,6 @@
 package app
 
 const (
-	Name    = "tuitodo"
-	Version = "0.0.0"
+	Name    = "tick"
+	Version = "0.0.1"
 )

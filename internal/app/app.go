@@ -17,7 +17,7 @@ type App struct {
 }
 
 func New(cfg Config) (*App, error) {
-	if err := cfg.validate(); err != nil {
+	if err := (&cfg).validate(); err != nil {
 		return nil, err
 	}
 	return &App{store: cfg.Store, clock: cfg.Clock, loc: cfg.Location}, nil
@@ -50,7 +50,7 @@ func (a *App) Abandon(ctx context.Context, id int64) error {
 
 func (a *App) PostponeOneDay(ctx context.Context, id int64) error {
 	current := a.currentDay()
-	newDue := domain.DayFromTime(current.Time().Add(24 * time.Hour))
+	newDue := domain.DayFromTime(current.Time().AddDate(0, 0, 1))
 	return a.store.Postpone(ctx, id, newDue)
 }
 

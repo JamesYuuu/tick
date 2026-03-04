@@ -14,7 +14,7 @@ type Config struct {
 	Location *time.Location
 }
 
-func (c Config) validate() error {
+func (c *Config) validate() error {
 	if c.Store == nil {
 		return fmt.Errorf("config: store is required")
 	}

@@ -5,12 +5,15 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	_ "modernc.org/sqlite"
 
 	"github.com/JamesYuuu/tick/internal/domain"
 	"github.com/JamesYuuu/tick/internal/store"
 )
+
+var memDBCounter uint64
 
 type SQLiteStore struct {
 	db *sql.DB
@@ -30,7 +33,9 @@ func Open(path string) (*SQLiteStore, error) {
 }
 
 func OpenInMemory() (*SQLiteStore, error) {
-	db, err := sql.Open("sqlite", "file::memory:?cache=shared")
+	name := atomic.AddUint64(&memDBCounter, 1)
+	dsn := fmt.Sprintf("file:memdb_%d?mode=memory&cache=shared", name)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite in memory: %w", err)
 	}

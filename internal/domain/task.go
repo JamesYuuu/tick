@@ -5,11 +5,17 @@ type Status string
 const (
 	StatusActive Status = "active"
 	StatusDone   Status = "done"
+	StatusAbandoned Status = "abandoned"
 )
 
 type Task struct {
-	Status Status
-	DueDay Day
+	ID           int64
+	Title        string
+	Status       Status
+	CreatedDay   Day
+	DueDay       Day
+	DoneDay      *Day
+	AbandonedDay *Day
 }
 
 func (t Task) IsDelayed(currentDay Day) bool {

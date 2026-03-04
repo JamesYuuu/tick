@@ -13,11 +13,11 @@ func TestDayFromTime_NormalizesToMidnightUTC(t *testing.T) {
 		d := DayFromTime(in)
 
 		want := time.Date(2026, 3, 5, 0, 0, 0, 0, time.UTC)
-		if !d.t.Equal(want) {
-			t.Fatalf("expected %v, got %v", want, d.t)
+		if !d.Time().Equal(want) {
+			t.Fatalf("expected %v, got %v", want, d.Time())
 		}
-		if d.t.Location() != time.UTC {
-			t.Fatalf("expected UTC location, got %v", d.t.Location())
+		if d.Time().Location() != time.UTC {
+			t.Fatalf("expected UTC location, got %v", d.Time().Location())
 		}
 	})
 }
@@ -28,15 +28,15 @@ func TestParseDay_NormalizedMidnightUTC(t *testing.T) {
 		t.Fatalf("expected parse to succeed: %v", err)
 	}
 
-	if d.t.Location() != time.UTC {
-		t.Fatalf("expected UTC location, got %v", d.t.Location())
+	if d.Time().Location() != time.UTC {
+		t.Fatalf("expected UTC location, got %v", d.Time().Location())
 	}
-	if d.t.Hour() != 0 || d.t.Minute() != 0 || d.t.Second() != 0 || d.t.Nanosecond() != 0 {
-		t.Fatalf("expected midnight UTC, got %v", d.t)
+	if d.Time().Hour() != 0 || d.Time().Minute() != 0 || d.Time().Second() != 0 || d.Time().Nanosecond() != 0 {
+		t.Fatalf("expected midnight UTC, got %v", d.Time())
 	}
 
 	d2 := MustParseDay(d.String())
-	if !d2.t.Equal(d.t) {
-		t.Fatalf("expected round-trip parse to preserve day, got %v then %v", d.t, d2.t)
+	if !d2.Time().Equal(d.Time()) {
+		t.Fatalf("expected round-trip parse to preserve day, got %v then %v", d.Time(), d2.Time())
 	}
 }

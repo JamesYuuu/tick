@@ -13,7 +13,7 @@ type Task struct {
 	Title        string
 	Status       Status
 	CreatedDay   Day
-	DueDay       Day
+	DueDay       Day // required by product; not intended to be zero-value
 	DoneDay      *Day
 	AbandonedDay *Day
 }

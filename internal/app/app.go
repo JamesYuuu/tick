@@ -54,10 +54,34 @@ func (a *App) PostponeOneDay(ctx context.Context, id int64) error {
 	return a.store.Postpone(ctx, id, newDue)
 }
 
-func (a *App) Stats(ctx context.Context, fromDay, toDay domain.Day) (store.OutcomeRatios, error) {
+
+func (a *App) Stats(ctx context.Context, fromDay, toDay domain.Day) (OutcomeRatios, error) {
 	out, err := a.store.StatsOutcomeRatios(ctx, fromDay, toDay)
 	if err != nil {
-		return store.OutcomeRatios{}, fmt.Errorf("stats: %w", err)
+		return OutcomeRatios{}, fmt.Errorf("stats: %w", err)
+	}
+	return OutcomeRatios{
+		TotalDone:             out.TotalDone,
+		DelayedDone:           out.DelayedDone,
+		TotalAbandoned:        out.TotalAbandoned,
+		DelayedAbandoned:      out.DelayedAbandoned,
+		DoneDelayedRatio:      out.DoneDelayedRatio,
+		AbandonedDelayedRatio: out.AbandonedDelayedRatio,
+	}, nil
+}
+
+func (a *App) HistoryDoneByDay(ctx context.Context, day domain.Day) ([]domain.Task, error) {
+	out, err := a.store.ListDoneByDay(ctx, day)
+	if err != nil {
+		return nil, fmt.Errorf("history done: %w", err)
+	}
+	return out, nil
+}
+
+func (a *App) HistoryAbandonedByDay(ctx context.Context, day domain.Day) ([]domain.Task, error) {
+	out, err := a.store.ListAbandonedByDay(ctx, day)
+	if err != nil {
+		return nil, fmt.Errorf("history abandoned: %w", err)
 	}
 	return out, nil
 }

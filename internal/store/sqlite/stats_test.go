@@ -2,11 +2,19 @@ package sqlite_test
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	"github.com/JamesYuuu/tick/internal/domain"
 	"github.com/JamesYuuu/tick/internal/store/sqlite"
 )
+
+func assertFloatWithin(t *testing.T, got, want, eps float64) {
+	t.Helper()
+	if math.Abs(got-want) > eps {
+		t.Fatalf("expected %v (±%v), got %v", want, eps, got)
+	}
+}
 
 func TestSQLiteStore_StatsOutcomeRatios(t *testing.T) {
 	ctx := context.Background()
@@ -69,10 +77,60 @@ func TestSQLiteStore_StatsOutcomeRatios(t *testing.T) {
 		t.Fatalf("expected DelayedAbandoned=1, got %d", got.DelayedAbandoned)
 	}
 
-	if got.DoneDelayedRatio != 0.5 {
-		t.Fatalf("expected DoneDelayedRatio=0.5, got %v", got.DoneDelayedRatio)
+	assertFloatWithin(t, got.DoneDelayedRatio, 0.5, 1e-9)
+	assertFloatWithin(t, got.AbandonedDelayedRatio, 1.0, 1e-9)
+}
+
+func TestSQLiteStore_StatsOutcomeRatios_InvertedRangeReturnsError(t *testing.T) {
+	ctx := context.Background()
+
+	s, err := sqlite.OpenInMemory()
+	if err != nil {
+		t.Fatalf("open: %v", err)
 	}
-	if got.AbandonedDelayedRatio != 1.0 {
-		t.Fatalf("expected AbandonedDelayedRatio=1.0, got %v", got.AbandonedDelayedRatio)
+	t.Cleanup(func() {
+		_ = s.Close()
+	})
+
+	from := domain.MustParseDay("2026-03-06")
+	to := domain.MustParseDay("2026-03-05")
+
+	if _, err := s.StatsOutcomeRatios(ctx, from, to); err == nil {
+		t.Fatalf("expected error, got nil")
 	}
+}
+
+func TestSQLiteStore_StatsOutcomeRatios_EmptyRangeReturnsZerosAndZeroRatios(t *testing.T) {
+	ctx := context.Background()
+
+	s, err := sqlite.OpenInMemory()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.Close()
+	})
+
+	from := domain.MustParseDay("2026-04-01")
+	to := domain.MustParseDay("2026-04-02")
+
+	got, err := s.StatsOutcomeRatios(ctx, from, to)
+	if err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+
+	if got.TotalDone != 0 {
+		t.Fatalf("expected TotalDone=0, got %d", got.TotalDone)
+	}
+	if got.DelayedDone != 0 {
+		t.Fatalf("expected DelayedDone=0, got %d", got.DelayedDone)
+	}
+	if got.TotalAbandoned != 0 {
+		t.Fatalf("expected TotalAbandoned=0, got %d", got.TotalAbandoned)
+	}
+	if got.DelayedAbandoned != 0 {
+		t.Fatalf("expected DelayedAbandoned=0, got %d", got.DelayedAbandoned)
+	}
+	assertFloatWithin(t, got.DoneDelayedRatio, 0, 1e-9)
+	assertFloatWithin(t, got.AbandonedDelayedRatio, 0, 1e-9)
 }

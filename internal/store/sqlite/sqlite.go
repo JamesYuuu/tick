@@ -223,40 +223,30 @@ func (s *SQLiteStore) ListAbandonedByDay(ctx context.Context, day domain.Day) ([
 func (s *SQLiteStore) StatsOutcomeRatios(ctx context.Context, fromDay, toDay domain.Day) (store.OutcomeRatios, error) {
 	var out store.OutcomeRatios
 
+	if toDay.Before(fromDay) {
+		return store.OutcomeRatios{}, fmt.Errorf("stats outcome ratios: invalid range: from=%s to=%s", fromDay.String(), toDay.String())
+	}
+
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*)
+		`SELECT
+			COUNT(*) AS total,
+			COALESCE(SUM(CASE WHEN due_day < done_day THEN 1 ELSE 0 END), 0) AS delayed
 		 FROM tasks
 		 WHERE status = ? AND done_day >= ? AND done_day <= ?`,
 		string(domain.StatusDone), fromDay.String(), toDay.String(),
-	).Scan(&out.TotalDone); err != nil {
-		return store.OutcomeRatios{}, fmt.Errorf("stats outcome ratios: total done: %w", err)
+	).Scan(&out.TotalDone, &out.DelayedDone); err != nil {
+		return store.OutcomeRatios{}, fmt.Errorf("stats outcome ratios: query done: %w", err)
 	}
 
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*)
-		 FROM tasks
-		 WHERE status = ? AND done_day >= ? AND done_day <= ? AND due_day < done_day`,
-		string(domain.StatusDone), fromDay.String(), toDay.String(),
-	).Scan(&out.DelayedDone); err != nil {
-		return store.OutcomeRatios{}, fmt.Errorf("stats outcome ratios: delayed done: %w", err)
-	}
-
-	if err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*)
+		`SELECT
+			COUNT(*) AS total,
+			COALESCE(SUM(CASE WHEN due_day < abandoned_day THEN 1 ELSE 0 END), 0) AS delayed
 		 FROM tasks
 		 WHERE status = ? AND abandoned_day >= ? AND abandoned_day <= ?`,
 		string(domain.StatusAbandoned), fromDay.String(), toDay.String(),
-	).Scan(&out.TotalAbandoned); err != nil {
-		return store.OutcomeRatios{}, fmt.Errorf("stats outcome ratios: total abandoned: %w", err)
-	}
-
-	if err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*)
-		 FROM tasks
-		 WHERE status = ? AND abandoned_day >= ? AND abandoned_day <= ? AND due_day < abandoned_day`,
-		string(domain.StatusAbandoned), fromDay.String(), toDay.String(),
-	).Scan(&out.DelayedAbandoned); err != nil {
-		return store.OutcomeRatios{}, fmt.Errorf("stats outcome ratios: delayed abandoned: %w", err)
+	).Scan(&out.TotalAbandoned, &out.DelayedAbandoned); err != nil {
+		return store.OutcomeRatios{}, fmt.Errorf("stats outcome ratios: query abandoned: %w", err)
 	}
 
 	if out.TotalDone > 0 {

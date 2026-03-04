@@ -28,6 +28,8 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_tasks_status_due_day ON tasks(status, due_day);`,
 		`CREATE INDEX IF NOT EXISTS idx_tasks_done_day ON tasks(done_day);`,
 		`CREATE INDEX IF NOT EXISTS idx_tasks_abandoned_day ON tasks(abandoned_day);`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_status_done_day ON tasks(status, done_day);`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_status_abandoned_day ON tasks(status, abandoned_day);`,
 	}
 
 	for _, stmt := range stmts {

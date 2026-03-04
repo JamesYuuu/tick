@@ -221,8 +221,52 @@ func (s *SQLiteStore) ListAbandonedByDay(ctx context.Context, day domain.Day) ([
 }
 
 func (s *SQLiteStore) StatsOutcomeRatios(ctx context.Context, fromDay, toDay domain.Day) (store.OutcomeRatios, error) {
-	// Not part of Task 5 requirements; return zero for now.
-	return store.OutcomeRatios{}, nil
+	var out store.OutcomeRatios
+
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*)
+		 FROM tasks
+		 WHERE status = ? AND done_day >= ? AND done_day <= ?`,
+		string(domain.StatusDone), fromDay.String(), toDay.String(),
+	).Scan(&out.TotalDone); err != nil {
+		return store.OutcomeRatios{}, fmt.Errorf("stats outcome ratios: total done: %w", err)
+	}
+
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*)
+		 FROM tasks
+		 WHERE status = ? AND done_day >= ? AND done_day <= ? AND due_day < done_day`,
+		string(domain.StatusDone), fromDay.String(), toDay.String(),
+	).Scan(&out.DelayedDone); err != nil {
+		return store.OutcomeRatios{}, fmt.Errorf("stats outcome ratios: delayed done: %w", err)
+	}
+
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*)
+		 FROM tasks
+		 WHERE status = ? AND abandoned_day >= ? AND abandoned_day <= ?`,
+		string(domain.StatusAbandoned), fromDay.String(), toDay.String(),
+	).Scan(&out.TotalAbandoned); err != nil {
+		return store.OutcomeRatios{}, fmt.Errorf("stats outcome ratios: total abandoned: %w", err)
+	}
+
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*)
+		 FROM tasks
+		 WHERE status = ? AND abandoned_day >= ? AND abandoned_day <= ? AND due_day < abandoned_day`,
+		string(domain.StatusAbandoned), fromDay.String(), toDay.String(),
+	).Scan(&out.DelayedAbandoned); err != nil {
+		return store.OutcomeRatios{}, fmt.Errorf("stats outcome ratios: delayed abandoned: %w", err)
+	}
+
+	if out.TotalDone > 0 {
+		out.DoneDelayedRatio = float64(out.DelayedDone) / float64(out.TotalDone)
+	}
+	if out.TotalAbandoned > 0 {
+		out.AbandonedDelayedRatio = float64(out.DelayedAbandoned) / float64(out.TotalAbandoned)
+	}
+
+	return out, nil
 }
 
 type scannable interface {

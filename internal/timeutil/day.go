@@ -13,8 +13,7 @@ func CurrentDay(c Clock, loc *time.Location) domain.Day {
 		loc = time.UTC
 	}
 
+	// domain.DayFromTime uses UTC calendar day. We need the calendar day in loc.
 	now := c.Now().In(loc)
-	localMidnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
-
-	return domain.DayFromTime(localMidnight)
+	return domain.MustParseDay(now.Format("2006-01-02"))
 }

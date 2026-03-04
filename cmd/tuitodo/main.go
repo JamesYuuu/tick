@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"tuitodo/internal/app"
+	"github.com/JamesYuuu/tick/internal/app"
 )
 
 func main() {

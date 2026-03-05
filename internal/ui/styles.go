@@ -162,7 +162,7 @@ func (m Model) tab(name string, on bool) string {
 }
 
 func (m Model) help() string {
-	base := "tab:Next  1:Today  2:Upcoming  3:History  q:Quit"
+	base := "tab:Next  q:Quit"
 	suffix := ""
 	switch m.view {
 	case viewToday:

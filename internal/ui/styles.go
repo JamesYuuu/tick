@@ -68,7 +68,7 @@ func fmtRatio(f float64) string {
 }
 
 func (m Model) header(active string) string {
-	left := m.styles.AppTitle.Render("tuitodo")
+	left := m.styles.AppTitle.Render("tick")
 	tabs := []string{
 		m.tab("Today", active == "Today"),
 		m.tab("Upcoming", active == "Upcoming"),

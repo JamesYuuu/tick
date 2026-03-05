@@ -1,14 +1,14 @@
-# tuitodo
+# tick
 
 Terminal TUI todo app.
 
 ## Run
 
 ```bash
-go run ./cmd/tuitodo
+go run ./cmd/tick
 ```
 
-Data is stored in `~/.tuitodo/todo.db`.
+Data is stored in `~/.tick/todo.db`.
 
 ## Views
 

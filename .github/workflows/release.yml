@@ -68,7 +68,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: |
           mkdir -p dist
-          go build -trimpath -o "dist/tick${{ matrix.ext }}" ./cmd/tuitodo
+          go build -trimpath -o "dist/tick${{ matrix.ext }}" ./cmd/tick
 
       - name: Package (tar.gz)
         if: ${{ matrix.pack == 'tar' }}

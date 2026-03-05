@@ -543,21 +543,33 @@ func TestRenderHistoryBody_FormatsRowsAndHighlightsDelayed(t *testing.T) {
 
 	today := domain.MustParseDay("2026-03-04")
 	selected := domain.MustParseDay("2026-03-03")
+	doneOnTime := domain.MustParseDay("2026-03-02")
+	doneLate := domain.MustParseDay("2026-03-03")
 
 	m := NewWithDeps(newFakeApp(today, nil), fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
 	m.view = viewHistory
 	m.historyFrom = selected
 	m.historyIndex = 0
 
-	m.historyDone = []domain.Task{{ID: 1, Title: "done-late", Status: domain.StatusDone, CreatedDay: selected, DueDay: domain.MustParseDay("2026-03-02")}}
-	m.historyAbandoned = []domain.Task{{ID: 2, Title: "ab-late", Status: domain.StatusAbandoned, CreatedDay: selected, DueDay: domain.MustParseDay("2026-03-02")}}
+	m.historyDone = []domain.Task{
+		{ID: 1, Title: "done-late", Status: domain.StatusDone, CreatedDay: selected, DueDay: doneOnTime, DoneDay: &doneLate},
+		// selectedDay is after due, but completion day is not: should NOT be marked delayed.
+		{ID: 2, Title: "done-on-time", Status: domain.StatusDone, CreatedDay: selected, DueDay: doneOnTime, DoneDay: &doneOnTime},
+		// Be conservative: missing DoneDay should not be marked delayed.
+		{ID: 3, Title: "done-missing-day", Status: domain.StatusDone, CreatedDay: selected, DueDay: doneOnTime, DoneDay: nil},
+	}
+	m.historyAbandoned = []domain.Task{
+		{ID: 4, Title: "ab-late", Status: domain.StatusAbandoned, CreatedDay: selected, DueDay: doneOnTime, AbandonedDay: &doneLate},
+		// selectedDay is after due, but abandonment day is not: should NOT be marked delayed.
+		{ID: 5, Title: "ab-on-time", Status: domain.StatusAbandoned, CreatedDay: selected, DueDay: doneOnTime, AbandonedDay: &doneOnTime},
+	}
 	m.historyActiveCreated = []domain.Task{
-		{ID: 3, Title: "active-late", Status: domain.StatusActive, CreatedDay: selected, DueDay: domain.MustParseDay("2026-03-03")},
-		{ID: 4, Title: "active-not-late", Status: domain.StatusActive, CreatedDay: selected, DueDay: today},
+		{ID: 6, Title: "active-late", Status: domain.StatusActive, CreatedDay: selected, DueDay: domain.MustParseDay("2026-03-03")},
+		{ID: 7, Title: "active-not-late", Status: domain.StatusActive, CreatedDay: selected, DueDay: today},
 	}
 
 	body := renderHistoryBody(m)
-	if !containsAll(body, []string{"> 03-03", "[✓] done-late", "[✗] ab-late", "[ ] active-late"}) {
+	if !containsAll(body, []string{"> 03-03", "[✓] done-late", "[✓] done-on-time", "[✓] done-missing-day", "[✗] ab-late", "[✗] ab-on-time", "[ ] active-late"}) {
 		t.Fatalf("expected formatted rows, got:\n%s", body)
 	}
 	if indexOf(body, "active-not-late") >= 0 {
@@ -568,8 +580,17 @@ func TestRenderHistoryBody_FormatsRowsAndHighlightsDelayed(t *testing.T) {
 	if !red.MatchString(lineContaining(body, "[✓] done-late")) {
 		t.Fatalf("expected delayed done row to be red, got %q", body)
 	}
+	if red.MatchString(lineContaining(body, "[✓] done-on-time")) {
+		t.Fatalf("expected on-time done row to not be red, got %q", body)
+	}
+	if red.MatchString(lineContaining(body, "[✓] done-missing-day")) {
+		t.Fatalf("expected done row with missing DoneDay to not be red, got %q", body)
+	}
 	if !red.MatchString(lineContaining(body, "[✗] ab-late")) {
 		t.Fatalf("expected delayed abandoned row to be red, got %q", body)
+	}
+	if red.MatchString(lineContaining(body, "[✗] ab-on-time")) {
+		t.Fatalf("expected on-time abandoned row to not be red, got %q", body)
 	}
 	if !red.MatchString(lineContaining(body, "[ ] active-late")) {
 		t.Fatalf("expected overdue active row to be red, got %q", body)

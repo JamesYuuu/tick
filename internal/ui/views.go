@@ -40,8 +40,6 @@ func renderHistory(m Model) string {
 }
 
 func renderHistoryBody(m Model) string {
-	selectedDay := addDays(m.historyFrom, m.historyIndex)
-
 	// Left column: 7-day list as MM-DD.
 	days := make([]string, 0, 7)
 	for i := 0; i < 7; i++ {
@@ -59,14 +57,17 @@ func renderHistoryBody(m Model) string {
 
 	for _, t := range m.historyDone {
 		line := "[✓] " + t.Title
-		if t.DueDay.Before(selectedDay) {
+		// Delay for done tasks is determined by the actual completion day.
+		// If DoneDay is missing, be conservative and do not mark delayed.
+		if t.DoneDay != nil && t.DueDay.Before(*t.DoneDay) {
 			line = m.styles.Delayed.Render(line)
 		}
 		rows = append(rows, line)
 	}
 	for _, t := range m.historyAbandoned {
 		line := "[✗] " + t.Title
-		if t.DueDay.Before(selectedDay) {
+		// Delay for abandoned tasks is determined by the actual abandonment day.
+		if t.AbandonedDay != nil && t.DueDay.Before(*t.AbandonedDay) {
 			line = m.styles.Delayed.Render(line)
 		}
 		rows = append(rows, line)

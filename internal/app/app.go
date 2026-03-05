@@ -54,7 +54,6 @@ func (a *App) PostponeOneDay(ctx context.Context, id int64) error {
 	return a.store.Postpone(ctx, id, newDue)
 }
 
-
 func (a *App) Stats(ctx context.Context, fromDay, toDay domain.Day) (OutcomeRatios, error) {
 	out, err := a.store.StatsOutcomeRatios(ctx, fromDay, toDay)
 	if err != nil {
@@ -82,6 +81,14 @@ func (a *App) HistoryAbandonedByDay(ctx context.Context, day domain.Day) ([]doma
 	out, err := a.store.ListAbandonedByDay(ctx, day)
 	if err != nil {
 		return nil, fmt.Errorf("history abandoned: %w", err)
+	}
+	return out, nil
+}
+
+func (a *App) HistoryActiveByCreatedDay(ctx context.Context, day domain.Day) ([]domain.Task, error) {
+	out, err := a.store.ListActiveByCreatedDay(ctx, day)
+	if err != nil {
+		return nil, fmt.Errorf("history active by created day: %w", err)
 	}
 	return out, nil
 }

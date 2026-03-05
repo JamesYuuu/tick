@@ -110,6 +110,33 @@ func (s *SQLiteStore) ListActive(ctx context.Context, p store.ListActiveParams) 
 	return out, nil
 }
 
+func (s *SQLiteStore) ListActiveByCreatedDay(ctx context.Context, day domain.Day) ([]domain.Task, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, title, status, created_day, due_day, done_day, abandoned_day
+		 FROM tasks
+		 WHERE status = ? AND created_day = ?
+		 ORDER BY id ASC`,
+		string(domain.StatusActive), day.String(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list active by created day: %w", err)
+	}
+	defer rows.Close()
+
+	var out []domain.Task
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list active by created day: %w", err)
+	}
+	return out, nil
+}
+
 func (s *SQLiteStore) MarkDone(ctx context.Context, id int64, doneDay domain.Day) error {
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE tasks

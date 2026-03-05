@@ -190,6 +190,38 @@ func TestSQLiteStore_Postpone_NotActive_ReturnsInvalidTransition(t *testing.T) {
 	})
 }
 
+func TestSQLiteStore_ListActiveByCreatedDay_FiltersByDay(t *testing.T) {
+	ctx := context.Background()
+
+	s, err := sqlite.OpenInMemory()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.Close()
+	})
+
+	day1 := domain.MustParseDay("2026-03-04")
+	day2 := domain.MustParseDay("2026-03-05")
+
+	created1, err := s.CreateTask(ctx, "a", day1, day1)
+	if err != nil {
+		t.Fatalf("create day1: %v", err)
+	}
+	_, err = s.CreateTask(ctx, "b", day2, day2)
+	if err != nil {
+		t.Fatalf("create day2: %v", err)
+	}
+
+	out, err := s.ListActiveByCreatedDay(ctx, day1)
+	if err != nil {
+		t.Fatalf("list active by created day: %v", err)
+	}
+	if len(out) != 1 || out[0].ID != created1.ID {
+		t.Fatalf("expected only day1 active task, got %#v", out)
+	}
+}
+
 func TestSQLiteStore_MarkDone_NotFound_WrapsNoRows(t *testing.T) {
 	ctx := context.Background()
 

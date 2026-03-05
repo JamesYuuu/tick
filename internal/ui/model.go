@@ -340,18 +340,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.view = viewToday
 				return m, m.cmdRefreshActive()
 			}
-		case key.Matches(msg, m.keys.Today):
-			m.view = viewToday
-			return m, m.cmdRefreshActive()
-		case key.Matches(msg, m.keys.Upcoming):
-			m.view = viewUpcoming
-			return m, m.cmdRefreshActive()
-		case key.Matches(msg, m.keys.History):
-			m.view = viewHistory
-			m.historyTo = m.currentDay()
-			m.historyFrom = addDays(m.historyTo, -6)
-			m.historyIndex = 6
-			return m, m.cmdRefreshHistoryWithStats()
 		case key.Matches(msg, m.keys.Add):
 			if m.view != viewToday {
 				return m, nil

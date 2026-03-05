@@ -4,9 +4,6 @@ import "github.com/charmbracelet/bubbles/key"
 
 type keyMap struct {
 	NextView key.Binding
-	Today    key.Binding
-	Upcoming key.Binding
-	History  key.Binding
 	Add      key.Binding
 	Done     key.Binding
 	Abandon  key.Binding
@@ -22,18 +19,6 @@ func defaultKeyMap() keyMap {
 		NextView: key.NewBinding(
 			key.WithKeys("tab"),
 			key.WithHelp("tab", "next view"),
-		),
-		Today: key.NewBinding(
-			key.WithKeys("1"),
-			key.WithHelp("1", "today"),
-		),
-		Upcoming: key.NewBinding(
-			key.WithKeys("2"),
-			key.WithHelp("2", "upcoming"),
-		),
-		History: key.NewBinding(
-			key.WithKeys("3"),
-			key.WithHelp("3", "history"),
 		),
 		Add: key.NewBinding(
 			key.WithKeys("a"),

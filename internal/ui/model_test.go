@@ -344,7 +344,7 @@ func TestModel_Today_PPostponesAndMovesTaskToUpcoming(t *testing.T) {
 		t.Fatalf("expected task removed from today after postpone, got %d", listLen(m.todayList))
 	}
 
-	um, cmd = m.Update(keyRune('2'))
+	um, cmd = m.Update(keyTab())
 	m = um.(Model)
 	if cmd == nil {
 		t.Fatalf("expected command when switching to upcoming")
@@ -728,7 +728,9 @@ func TestModel_View_Footer_HistoryView_RatiosOnStatusLine_StillTwoLineFooter(t *
 	m = um.(Model)
 
 	// Enter history view (loads selected day + stats).
-	um, cmd := m.Update(keyRune('3'))
+	um, cmd := m.Update(keyTab())
+	m = um.(Model)
+	um, cmd = m.Update(keyTab())
 	m = um.(Model)
 	m = applyCmd(m, cmd)
 

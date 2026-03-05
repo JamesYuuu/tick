@@ -53,7 +53,7 @@ func TestModel_Upcoming_ShowsEmptyStateWhenNoTasks(t *testing.T) {
 	m = applyCmd(m, m.Init())
 
 	// Switch to Upcoming view and refresh lists.
-	um, cmd := m.Update(keyRune('2'))
+	um, cmd := m.Update(keyTab())
 	m = um.(Model)
 	m = applyCmd(m, cmd)
 
@@ -70,7 +70,9 @@ func TestModel_History_ShowsEmptyCopyUnderHeadingsWhenNoOutcomes(t *testing.T) {
 	a := newFakeApp(day, nil)
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	um, cmd := m.Update(keyRune('3'))
+	um, cmd := m.Update(keyTab())
+	m = um.(Model)
+	um, cmd = m.Update(keyTab())
 	m = um.(Model)
 	m = applyCmd(m, cmd)
 
@@ -95,7 +97,9 @@ func TestModel_History_EnterRefreshesStatsAndSelectedDayLists(t *testing.T) {
 	a.statsRatios = map[string]float64{"done": 0.25, "abandoned": 0.50}
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	um, cmd := m.Update(keyRune('3'))
+	um, cmd := m.Update(keyTab())
+	m = um.(Model)
+	um, cmd = m.Update(keyTab())
 	m = um.(Model)
 	if cmd == nil {
 		t.Fatalf("expected cmd when entering history view")
@@ -142,7 +146,9 @@ func TestModel_History_KMovesSelectionUpOneDayAndRefreshes(t *testing.T) {
 	a.statsRatios = map[string]float64{}
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	um, cmd := m.Update(keyRune('3'))
+	um, cmd := m.Update(keyTab())
+	m = um.(Model)
+	um, cmd = m.Update(keyTab())
 	m = um.(Model)
 	um, _ = m.Update(cmd())
 	m = um.(Model)
@@ -176,7 +182,9 @@ func TestModel_History_KDoesNotRefreshStats(t *testing.T) {
 	a.statsRatios = map[string]float64{"done": 0.25, "abandoned": 0.50}
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	um, cmd := m.Update(keyRune('3'))
+	um, cmd := m.Update(keyTab())
+	m = um.(Model)
+	um, cmd = m.Update(keyTab())
 	m = um.(Model)
 	um, _ = m.Update(cmd())
 	m = um.(Model)
@@ -206,7 +214,9 @@ func TestModel_History_RefreshPassesThroughHistoryDoneError(t *testing.T) {
 	a.historyErr = errors.New("history done: boom")
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	um, cmd := m.Update(keyRune('3'))
+	um, cmd := m.Update(keyTab())
+	m = um.(Model)
+	um, cmd = m.Update(keyTab())
 	m = um.(Model)
 	if cmd == nil {
 		t.Fatalf("expected cmd when entering history view")
@@ -229,7 +239,9 @@ func TestModel_History_HNoLongerShiftsWindow(t *testing.T) {
 	a.statsRatios = map[string]float64{}
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	um, cmd := m.Update(keyRune('3'))
+	um, cmd := m.Update(keyTab())
+	m = um.(Model)
+	um, cmd = m.Update(keyTab())
 	m = um.(Model)
 	um, _ = m.Update(cmd())
 	m = um.(Model)
@@ -296,7 +308,9 @@ func TestModel_History_LeftRightKeysNoLongerShiftWindow(t *testing.T) {
 	a := newFakeApp(current, nil)
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	um, cmd := m.Update(keyRune('3'))
+	um, cmd := m.Update(keyTab())
+	m = um.(Model)
+	um, cmd = m.Update(keyTab())
 	m = um.(Model)
 	m = applyCmd(m, cmd)
 
@@ -333,7 +347,9 @@ func TestModel_History_UpAtTopAutoRollsWindowBackOneDay(t *testing.T) {
 	a := newFakeApp(current, nil)
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	um, cmd := m.Update(keyRune('3'))
+	um, cmd := m.Update(keyTab())
+	m = um.(Model)
+	um, cmd = m.Update(keyTab())
 	m = um.(Model)
 	m = applyCmd(m, cmd)
 
@@ -376,7 +392,9 @@ func TestModel_History_DownAtBottomAutoRollsWindowForwardOneDay_ClampedAtToday(t
 	a := newFakeApp(current, nil)
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	um, cmd := m.Update(keyRune('3'))
+	um, cmd := m.Update(keyTab())
+	m = um.(Model)
+	um, cmd = m.Update(keyTab())
 	m = um.(Model)
 	m = applyCmd(m, cmd)
 
@@ -443,7 +461,9 @@ func TestModel_History_DownAtBottom_WhenWindowLagsToday_MovesForwardOnlyOneDay(t
 	a := newFakeApp(today, nil)
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	um, cmd := m.Update(keyRune('3'))
+	um, cmd := m.Update(keyTab())
+	m = um.(Model)
+	um, cmd = m.Update(keyTab())
 	m = um.(Model)
 	m = applyCmd(m, cmd)
 

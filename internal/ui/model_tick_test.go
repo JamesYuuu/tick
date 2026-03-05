@@ -126,7 +126,9 @@ func TestModel_Tick_InHistoryViewUpdatesWindowToEndAtNewDay(t *testing.T) {
 
 	m := NewWithDeps(a, clk, time.UTC)
 	// Enter history view.
-	um, cmd := m.Update(keyRune('3'))
+	um, cmd := m.Update(keyTab())
+	m = um.(Model)
+	um, cmd = m.Update(keyTab())
 	m = um.(Model)
 	m = applyCmd(m, cmd)
 

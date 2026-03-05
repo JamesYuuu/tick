@@ -18,7 +18,7 @@ Data is stored in `~/.tick/todo.db`.
 
 ## Keys
 
-- `1` Today, `2` Upcoming, `3` History
+- `tab` next view (Today -> Upcoming -> History)
 - `q` quit
 
 Today:
@@ -31,4 +31,3 @@ Today:
 History:
 
 - `j/k` or `Down/Up` move day
-- `h/l` or `Left/Right` shift 7-day window

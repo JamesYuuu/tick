@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type styles struct {
@@ -91,6 +92,59 @@ func forceHeight(s string, h int) string {
 		parts = append(parts, " ")
 	}
 	return strings.Join(parts, "\n")
+}
+
+// centerInBox places the given multi-line block inside a w x h box by adding
+// leading spaces (horizontal centering) and blank lines (vertical centering).
+//
+// It is ANSI-aware for width calculations.
+func centerInBox(s string, w, h int) string {
+	if w <= 0 || h <= 0 || s == "" {
+		return s
+	}
+
+	trimmed := strings.TrimRight(s, "\n")
+	lines := []string{""}
+	if trimmed != "" {
+		lines = strings.Split(trimmed, "\n")
+	}
+
+	contentW := 0
+	for _, ln := range lines {
+		if aw := ansi.StringWidth(ln); aw > contentW {
+			contentW = aw
+		}
+	}
+	contentH := len(lines)
+
+	leftPad := (w - contentW) / 2
+	if leftPad < 0 {
+		leftPad = 0
+	}
+	topPad := (h - contentH) / 2
+	if topPad < 0 {
+		topPad = 0
+	}
+
+	prefix := ""
+	if leftPad > 0 {
+		prefix = strings.Repeat(" ", leftPad)
+	}
+
+	out := make([]string, 0, h)
+	for i := 0; i < topPad; i++ {
+		out = append(out, " ")
+	}
+	for _, ln := range lines {
+		out = append(out, prefix+ln)
+	}
+	if len(out) > h {
+		out = out[:h]
+	}
+	for len(out) < h {
+		out = append(out, " ")
+	}
+	return strings.Join(out, "\n")
 }
 
 func defaultStyles() styles {

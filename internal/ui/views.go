@@ -100,7 +100,18 @@ func renderHistoryBody(m Model) string {
 		" ",
 		right,
 	)
-	return cols
+	// Center the entire history block within the available workspace.
+	// This matches Model.View() layout math.
+	innerW := sheetInnerWidth(m.width)
+	workspaceH := m.height - (1 + 1 + 1 + 2) // header + sep + sep + (status+help)
+	if workspaceH < 0 {
+		workspaceH = 0
+	}
+	innerH := workspaceH - sheetVertMargin
+	if innerH < 0 {
+		innerH = 0
+	}
+	return centerInBox(cols, innerW, innerH)
 }
 
 func fmtMMDD(d domain.Day) string {

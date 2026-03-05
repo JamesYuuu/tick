@@ -659,3 +659,101 @@ func TestModel_WindowSize_SetsAddInputWidthToSheetInnerWidth(t *testing.T) {
 		t.Fatalf("expected addInput width to be %d, got %d", want, m.addInput.Width)
 	}
 }
+
+func TestModel_View_Footer_EmptyStatusMsg_StillRendersTwoLineFooter(t *testing.T) {
+	orig := tickEvery
+	tickEvery = 0
+	t.Cleanup(func() { tickEvery = orig })
+
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	day := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(day, nil)
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	const w = 80
+	const h = 24
+	um, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+	m = um.(Model)
+	m = applyCmd(m, m.Init())
+
+	if m.view == viewHistory {
+		t.Fatalf("test setup invalid: expected non-history view")
+	}
+	if m.statusMsg != "" {
+		t.Fatalf("test setup invalid: expected empty statusMsg, got %q", m.statusMsg)
+	}
+
+	out := m.View()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != h {
+		t.Fatalf("expected View to return exactly %d lines, got %d", h, len(lines))
+	}
+
+	statusLine := lines[len(lines)-2]
+	helpLine := lines[len(lines)-1]
+	sep := strings.Repeat("-", w)
+	if lines[len(lines)-3] != sep {
+		t.Fatalf("expected separator directly above footer, got %q", lines[len(lines)-3])
+	}
+	if strings.TrimSpace(statusLine) != "" {
+		t.Fatalf("expected blank status line when statusMsg empty, got %q", statusLine)
+	}
+	if !strings.Contains(helpLine, "q:Quit") {
+		t.Fatalf("expected help line in footer, got %q", helpLine)
+	}
+}
+
+func TestModel_View_Footer_HistoryView_RatiosOnStatusLine_StillTwoLineFooter(t *testing.T) {
+	orig := tickEvery
+	tickEvery = 0
+	t.Cleanup(func() { tickEvery = orig })
+
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	day := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(day, nil)
+	a.statsRatios = map[string]float64{"done": 0.25, "abandoned": 0.50}
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	const w = 80
+	const h = 24
+	um, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+	m = um.(Model)
+
+	// Enter history view (loads selected day + stats).
+	um, cmd := m.Update(keyRune('3'))
+	m = um.(Model)
+	m = applyCmd(m, cmd)
+
+	if m.view != viewHistory {
+		t.Fatalf("expected history view")
+	}
+	if m.statusMsg != "" {
+		t.Fatalf("test setup invalid: expected empty statusMsg, got %q", m.statusMsg)
+	}
+
+	out := m.View()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != h {
+		t.Fatalf("expected View to return exactly %d lines, got %d", h, len(lines))
+	}
+
+	statusLine := lines[len(lines)-2]
+	helpLine := lines[len(lines)-1]
+	sep := strings.Repeat("-", w)
+	if lines[len(lines)-3] != sep {
+		t.Fatalf("expected separator directly above footer, got %q", lines[len(lines)-3])
+	}
+	if !strings.Contains(statusLine, "DoneDelayedRatio") || !strings.Contains(statusLine, "AbandonedDelayedRatio") {
+		t.Fatalf("expected ratios on status line, got %q", statusLine)
+	}
+	if strings.Contains(helpLine, "DoneDelayedRatio") || strings.Contains(helpLine, "AbandonedDelayedRatio") {
+		t.Fatalf("expected ratios to be on status line (not help line), got help=%q", helpLine)
+	}
+	if !strings.Contains(helpLine, "q:Quit") {
+		t.Fatalf("expected help line in footer, got %q", helpLine)
+	}
+}

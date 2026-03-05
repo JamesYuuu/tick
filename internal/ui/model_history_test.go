@@ -436,6 +436,52 @@ func TestModel_History_DownAtBottomAutoRollsWindowForwardOneDay_ClampedAtToday(t
 	}
 }
 
+func TestModel_History_DownAtBottom_WhenWindowLagsToday_MovesForwardOnlyOneDay(t *testing.T) {
+	disableTick(t)
+
+	today := domain.MustParseDay("2026-03-10")
+	a := newFakeApp(today, nil)
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	um, cmd := m.Update(keyRune('3'))
+	m = um.(Model)
+	m = applyCmd(m, cmd)
+
+	// Put the selection at the bottom, but set the visible 7-day window to lag behind today.
+	m.historyTo = addDays(today, -3)
+	m.historyFrom = addDays(m.historyTo, -6)
+	m.historyIndex = 6
+
+	from0, to0 := m.historyFrom, m.historyTo
+	a.resetHistoryCounters()
+
+	um, cmd = m.Update(keyRune('j'))
+	m = um.(Model)
+	if cmd == nil {
+		t.Fatalf("expected cmd after auto-roll")
+	}
+	m = applyCmd(m, cmd)
+
+	if m.historyIndex != 6 {
+		t.Fatalf("expected index to remain at 6, got %d", m.historyIndex)
+	}
+	if m.historyFrom.String() != addDays(from0, 1).String() {
+		t.Fatalf("expected historyFrom to move forward by 1 day, got %s", m.historyFrom.String())
+	}
+	if m.historyTo.String() != addDays(to0, 1).String() {
+		t.Fatalf("expected historyTo to move forward by 1 day, got %s", m.historyTo.String())
+	}
+	if m.historyTo.String() != addDays(m.historyFrom, 6).String() {
+		t.Fatalf("expected 7-day window preserved, got from=%s to=%s", m.historyFrom.String(), m.historyTo.String())
+	}
+	if a.statsCalls != 1 {
+		t.Fatalf("expected stats refresh on window roll, got %d", a.statsCalls)
+	}
+	if a.lastStatsFrom.String() != m.historyFrom.String() || a.lastStatsTo.String() != m.historyTo.String() {
+		t.Fatalf("expected stats called with %s..%s, got %s..%s", m.historyFrom.String(), m.historyTo.String(), a.lastStatsFrom.String(), a.lastStatsTo.String())
+	}
+}
+
 func containsAll(s string, subs []string) bool {
 	for _, sub := range subs {
 		if indexOf(s, sub) < 0 {

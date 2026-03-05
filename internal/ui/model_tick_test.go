@@ -169,7 +169,7 @@ func TestModel_Tick_UpdatesDelayedHighlightingAfterRollover(t *testing.T) {
 
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
-	red := regexp.MustCompile("\\x1b\\[(31|91|38;5;9)m")
+	red := regexp.MustCompile("\\x1b\\[[0-9;]*(31|91|38;5;9)[0-9;]*m")
 
 	// Task due today should become delayed after day rolls over.
 	day1 := domain.MustParseDay("2026-03-04")

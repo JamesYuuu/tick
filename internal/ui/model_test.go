@@ -460,8 +460,37 @@ func TestTodayDelegate_RendersDelayedTaskInRed(t *testing.T) {
 	d.Render(&buf, l, 0, taskItem{task: delayed})
 	got := buf.String()
 
-	red := regexp.MustCompile("\\x1b\\[(31|91|38;5;9)m")
+	red := regexp.MustCompile("\\x1b\\[[0-9;]*(31|91|38;5;9)[0-9;]*m")
 	if !red.MatchString(got) {
 		t.Fatalf("expected delayed task to include red ANSI color, got %q", got)
+	}
+}
+
+func TestModel_View_ShowsSelectedRowWithDistinctHighlight(t *testing.T) {
+	orig := tickEvery
+	tickEvery = 0
+	t.Cleanup(func() { tickEvery = orig })
+
+	// Force ANSI output so we can assert selection styling deterministically.
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	day := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(day, []domain.Task{
+		{ID: 1, Title: "first", Status: domain.StatusActive, CreatedDay: day, DueDay: day},
+		{ID: 2, Title: "second", Status: domain.StatusActive, CreatedDay: day, DueDay: day},
+	})
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	um, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = um.(Model)
+	m = applyCmd(m, m.Init())
+
+	out := m.View()
+
+	// Selected row should use a calm background highlight.
+	bg := regexp.MustCompile("\\x1b\\[[0-9;]*48;[0-9;]*m")
+	if !bg.MatchString(out) {
+		t.Fatalf("expected View to include ANSI background highlight for selected row, got: %q", out)
 	}
 }

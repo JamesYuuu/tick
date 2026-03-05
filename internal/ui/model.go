@@ -400,8 +400,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.historyTo.Time().Equal(today.Time()) {
 					return m, nil
 				}
-				m.historyFrom = addDays(m.historyFrom, 1)
-				m.historyTo = today
+				nextTo := addDays(m.historyTo, 1)
+				if today.Before(nextTo) {
+					nextTo = today
+				}
+				m.historyTo = nextTo
+				m.historyFrom = addDays(m.historyTo, -6)
 				return m, m.cmdRefreshHistoryWithStats()
 			}
 		}

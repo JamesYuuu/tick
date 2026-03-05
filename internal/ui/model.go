@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type view int
@@ -251,6 +252,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		workspaceWidth := sheetInnerWidth(msg.Width)
 		m.todayList.SetSize(workspaceWidth, innerHeight)
 		m.upcomingList.SetSize(workspaceWidth, innerHeight)
+		m.addInput.Width = workspaceWidth
 		return m, nil
 	case refreshMsg:
 		if msg.err != nil {
@@ -494,9 +496,11 @@ func (m Model) View() string {
 	if workspaceWidth > 0 {
 		m.todayList.SetSize(workspaceWidth, innerHeight)
 		m.upcomingList.SetSize(workspaceWidth, innerHeight)
+		// Prefer sizing in WindowSizeMsg, but keep addInput stable if View runs first.
+		m.addInput.Width = workspaceWidth
 	}
 	frameBody := forceHeight(body, innerHeight)
-	workspace := m.frame(active, frameBody)
+	workspace := m.sheetFrame(frameBody)
 	workspace = forceHeight(workspace, workspaceHeight)
 
 	var b strings.Builder
@@ -515,6 +519,33 @@ func (m Model) View() string {
 
 	out := b.String()
 	out = forceHeight(out, m.height)
+	out = clipLinesToWidth(out, contentWidth(m.width))
 	out = padLeftToWidth(out, m.width)
 	return out
+}
+
+func (m Model) sheetFrame(body string) string {
+	sheet := m.styles.Sheet
+	if cw := contentWidth(m.width); cw > 0 {
+		// Clamp to content width by accounting for the sheet's own frame size.
+		w := cw - sheet.GetHorizontalFrameSize()
+		if w < 0 {
+			w = 0
+		}
+		sheet = sheet.Width(w)
+	}
+	return sheet.Render(body)
+}
+
+func clipLinesToWidth(s string, w int) string {
+	if w <= 0 || s == "" {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		if ansi.StringWidth(lines[i]) > w {
+			lines[i] = ansi.Truncate(lines[i], w, "")
+		}
+	}
+	return strings.Join(lines, "\n")
 }

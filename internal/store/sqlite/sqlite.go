@@ -20,6 +20,11 @@ type SQLiteStore struct {
 	db *sql.DB
 }
 
+const listActiveByCreatedDayQuery = "SELECT id, title, status, created_day, due_day, done_day, abandoned_day\n" +
+	" FROM tasks\n" +
+	" WHERE status = 'active' AND created_day = ?\n" +
+	" ORDER BY id ASC"
+
 func Open(path string) (*SQLiteStore, error) {
 	dsn := dsnForPath(path)
 	db, err := sql.Open("sqlite", dsn)
@@ -111,13 +116,7 @@ func (s *SQLiteStore) ListActive(ctx context.Context, p store.ListActiveParams) 
 }
 
 func (s *SQLiteStore) ListActiveByCreatedDay(ctx context.Context, day domain.Day) ([]domain.Task, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, title, status, created_day, due_day, done_day, abandoned_day
-		 FROM tasks
-		 WHERE status = ? AND created_day = ?
-		 ORDER BY id ASC`,
-		string(domain.StatusActive), day.String(),
-	)
+	rows, err := s.db.QueryContext(ctx, listActiveByCreatedDayQuery, day.String())
 	if err != nil {
 		return nil, fmt.Errorf("list active by created day: %w", err)
 	}

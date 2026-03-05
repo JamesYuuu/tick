@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -492,5 +493,37 @@ func TestModel_View_ShowsSelectedRowWithDistinctHighlight(t *testing.T) {
 	bg := regexp.MustCompile("\\x1b\\[[0-9;]*48;[0-9;]*m")
 	if !bg.MatchString(out) {
 		t.Fatalf("expected View to include ANSI background highlight for selected row, got: %q", out)
+	}
+}
+
+func TestModel_View_FillsWindowHeightAndCentersWhenWide(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	day := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(day, nil)
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	const w = 120
+	const h = 24
+	um, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+	m = um.(Model)
+
+	out := m.View()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != h {
+		t.Fatalf("expected View to return exactly %d lines, got %d", h, len(lines))
+	}
+
+	// When the terminal is wider than the max content width (96), the view is centered.
+	wantPad := (w - maxContentWidth) / 2
+	if wantPad <= 0 {
+		t.Fatalf("test setup invalid: expected width %d to require centering", w)
+	}
+	pad := strings.Repeat(" ", wantPad)
+	for i, ln := range lines {
+		if !strings.HasPrefix(ln, pad) {
+			t.Fatalf("expected line %d to have left padding of %d spaces when width=%d, got: %q", i+1, wantPad, w, ln)
+		}
 	}
 }

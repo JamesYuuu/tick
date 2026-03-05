@@ -162,13 +162,13 @@ func (m Model) tab(name string, on bool) string {
 }
 
 func (m Model) help() string {
-	base := "1:Today  2:Upcoming  3:History  q:Quit"
+	base := "tab:Next  1:Today  2:Upcoming  3:History  q:Quit"
 	suffix := ""
 	switch m.view {
 	case viewToday:
 		suffix = "  a:Add  x:Done  d:Abandon  p:+1 day"
 	case viewHistory:
-		suffix = "  up/k:prev day  down/j:next day  left/h:-1 day window  right/l:+1 day window"
+		suffix = "  up/k:prev day  down/j:next day"
 	}
 	return m.styles.Help.Render(base + suffix)
 }

@@ -237,6 +237,10 @@ func keyRune(r rune) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
 }
 
+func keyTab() tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyTab}
+}
+
 func keyEnter() tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyEnter}
 }

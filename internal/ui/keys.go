@@ -3,6 +3,7 @@ package ui
 import "github.com/charmbracelet/bubbles/key"
 
 type keyMap struct {
+	NextView key.Binding
 	Today    key.Binding
 	Upcoming key.Binding
 	History  key.Binding
@@ -12,14 +13,16 @@ type keyMap struct {
 	Postpone key.Binding
 	Quit     key.Binding
 
-	HistoryUp    key.Binding
-	HistoryDown  key.Binding
-	HistoryLeft  key.Binding
-	HistoryRight key.Binding
+	HistoryUp   key.Binding
+	HistoryDown key.Binding
 }
 
 func defaultKeyMap() keyMap {
 	return keyMap{
+		NextView: key.NewBinding(
+			key.WithKeys("tab"),
+			key.WithHelp("tab", "next view"),
+		),
 		Today: key.NewBinding(
 			key.WithKeys("1"),
 			key.WithHelp("1", "today"),
@@ -59,14 +62,6 @@ func defaultKeyMap() keyMap {
 		HistoryDown: key.NewBinding(
 			key.WithKeys("down", "j"),
 			key.WithHelp("down/j", "next day"),
-		),
-		HistoryLeft: key.NewBinding(
-			key.WithKeys("left", "h"),
-			key.WithHelp("left/h", "-1 day window"),
-		),
-		HistoryRight: key.NewBinding(
-			key.WithKeys("right", "l"),
-			key.WithHelp("right/l", "+1 day window"),
 		),
 	}
 }

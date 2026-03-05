@@ -322,6 +322,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
+		case key.Matches(msg, m.keys.NextView):
+			switch m.view {
+			case viewToday:
+				m.view = viewUpcoming
+				return m, m.cmdRefreshActive()
+			case viewUpcoming:
+				m.view = viewHistory
+				m.historyTo = m.currentDay()
+				m.historyFrom = addDays(m.historyTo, -6)
+				m.historyIndex = 6
+				return m, m.cmdRefreshHistoryWithStats()
+			case viewHistory:
+				m.view = viewToday
+				return m, m.cmdRefreshActive()
+			default:
+				m.view = viewToday
+				return m, m.cmdRefreshActive()
+			}
 		case key.Matches(msg, m.keys.Today):
 			m.view = viewToday
 			return m, m.cmdRefreshActive()
@@ -368,20 +386,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.historyIndex--
 					return m, m.cmdRefreshHistorySelectedDay()
 				}
-				return m, nil
+				// Auto-roll the 7-day window back by one day.
+				m.historyFrom = addDays(m.historyFrom, -1)
+				m.historyTo = addDays(m.historyTo, -1)
+				return m, m.cmdRefreshHistoryWithStats()
 			case key.Matches(msg, m.keys.HistoryDown):
 				if m.historyIndex < 6 {
 					m.historyIndex++
 					return m, m.cmdRefreshHistorySelectedDay()
 				}
-				return m, nil
-			case key.Matches(msg, m.keys.HistoryLeft):
-				m.historyFrom = addDays(m.historyFrom, -1)
-				m.historyTo = addDays(m.historyTo, -1)
-				return m, m.cmdRefreshHistoryWithStats()
-			case key.Matches(msg, m.keys.HistoryRight):
+				// Auto-roll the 7-day window forward by one day, clamped at today.
+				today := m.currentDay()
+				if m.historyTo.Time().Equal(today.Time()) {
+					return m, nil
+				}
 				m.historyFrom = addDays(m.historyFrom, 1)
-				m.historyTo = addDays(m.historyTo, 1)
+				m.historyTo = today
 				return m, m.cmdRefreshHistoryWithStats()
 			}
 		}

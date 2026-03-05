@@ -219,11 +219,10 @@ func TestModel_History_RefreshPassesThroughHistoryDoneError(t *testing.T) {
 	}
 }
 
-func TestModel_History_HShiftsWindowBackOneDayAndRefreshesStats(t *testing.T) {
+func TestModel_History_HNoLongerShiftsWindow(t *testing.T) {
 	disableTick(t)
 
 	current := domain.MustParseDay("2026-03-04")
-	shiftedTo := domain.DayFromTime(current.Time().AddDate(0, 0, -1))
 	a := newFakeApp(current, nil)
 	a.historyDoneByDay = map[string][]domain.Task{}
 	a.historyAbandonedByDay = map[string][]domain.Task{}
@@ -235,21 +234,205 @@ func TestModel_History_HShiftsWindowBackOneDayAndRefreshesStats(t *testing.T) {
 	um, _ = m.Update(cmd())
 	m = um.(Model)
 
+	from0, to0, idx0 := m.historyFrom, m.historyTo, m.historyIndex
 	a.resetHistoryCounters()
+
 	um, cmd = m.Update(keyRune('h'))
 	m = um.(Model)
-	if cmd == nil {
-		t.Fatalf("expected cmd after shifting window")
+	if cmd != nil {
+		m = applyCmd(m, cmd)
 	}
-	um, _ = m.Update(cmd())
-	_ = um.(Model)
 
-	wantFrom := domain.DayFromTime(shiftedTo.Time().AddDate(0, 0, -6))
-	if a.lastStatsFrom.String() != wantFrom.String() || a.lastStatsTo.String() != shiftedTo.String() {
-		t.Fatalf("expected stats called with %s..%s, got %s..%s", wantFrom.String(), shiftedTo.String(), a.lastStatsFrom.String(), a.lastStatsTo.String())
+	if m.historyFrom.String() != from0.String() || m.historyTo.String() != to0.String() || m.historyIndex != idx0 {
+		t.Fatalf("expected h to do nothing, got from=%s to=%s idx=%d", m.historyFrom.String(), m.historyTo.String(), m.historyIndex)
 	}
-	if a.lastHistoryDay.String() != shiftedTo.String() {
-		t.Fatalf("expected history lists refreshed for selected day=%s, got %s", shiftedTo.String(), a.lastHistoryDay.String())
+	if a.statsCalls != 0 {
+		t.Fatalf("expected no stats refresh from h, got %d", a.statsCalls)
+	}
+}
+
+func TestModel_Keymap_TabCyclesBetweenTopViews(t *testing.T) {
+	disableTick(t)
+
+	day := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(day, nil)
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	m = applyCmd(m, m.Init())
+
+	if m.view != viewToday {
+		t.Fatalf("expected initial viewToday")
+	}
+
+	// Today -> Upcoming
+	um, cmd := m.Update(keyTab())
+	m = um.(Model)
+	m = applyCmd(m, cmd)
+	if m.view != viewUpcoming {
+		t.Fatalf("expected Tab to switch to viewUpcoming, got %v", m.view)
+	}
+
+	// Upcoming -> History
+	um, cmd = m.Update(keyTab())
+	m = um.(Model)
+	m = applyCmd(m, cmd)
+	if m.view != viewHistory {
+		t.Fatalf("expected Tab to switch to viewHistory, got %v", m.view)
+	}
+
+	// History -> Today
+	um, cmd = m.Update(keyTab())
+	m = um.(Model)
+	m = applyCmd(m, cmd)
+	if m.view != viewToday {
+		t.Fatalf("expected Tab to cycle back to viewToday, got %v", m.view)
+	}
+}
+
+func TestModel_History_LeftRightKeysNoLongerShiftWindow(t *testing.T) {
+	disableTick(t)
+
+	current := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(current, nil)
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	um, cmd := m.Update(keyRune('3'))
+	m = um.(Model)
+	m = applyCmd(m, cmd)
+
+	from0, to0, idx0 := m.historyFrom, m.historyTo, m.historyIndex
+	a.resetHistoryCounters()
+
+	// h/left and l/right used to shift the 7-day window; now they do nothing.
+	keys := []tea.KeyMsg{
+		keyRune('h'),
+		{Type: tea.KeyLeft},
+		keyRune('l'),
+		{Type: tea.KeyRight},
+	}
+	for _, km := range keys {
+		um, cmd = m.Update(km)
+		m = um.(Model)
+		if cmd != nil {
+			m = applyCmd(m, cmd)
+		}
+	}
+
+	if m.historyFrom.String() != from0.String() || m.historyTo.String() != to0.String() || m.historyIndex != idx0 {
+		t.Fatalf("expected history window/index unchanged, got from=%s to=%s idx=%d", m.historyFrom.String(), m.historyTo.String(), m.historyIndex)
+	}
+	if a.statsCalls != 0 {
+		t.Fatalf("expected no stats refresh from left/right keys, got %d", a.statsCalls)
+	}
+}
+
+func TestModel_History_UpAtTopAutoRollsWindowBackOneDay(t *testing.T) {
+	disableTick(t)
+
+	current := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(current, nil)
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	um, cmd := m.Update(keyRune('3'))
+	m = um.(Model)
+	m = applyCmd(m, cmd)
+
+	// Move selection to top of window.
+	for i := 0; i < 6; i++ {
+		um, cmd = m.Update(keyRune('k'))
+		m = um.(Model)
+		m = applyCmd(m, cmd)
+	}
+	if m.historyIndex != 0 {
+		t.Fatalf("expected historyIndex at top (0), got %d", m.historyIndex)
+	}
+
+	from0, to0 := m.historyFrom, m.historyTo
+	a.resetHistoryCounters()
+
+	// One more up should auto-roll the window back 1 day.
+	um, cmd = m.Update(keyRune('k'))
+	m = um.(Model)
+	if cmd == nil {
+		t.Fatalf("expected cmd after auto-roll")
+	}
+	m = applyCmd(m, cmd)
+
+	if m.historyIndex != 0 {
+		t.Fatalf("expected index to remain at 0 after auto-roll, got %d", m.historyIndex)
+	}
+	if m.historyFrom.String() != addDays(from0, -1).String() || m.historyTo.String() != addDays(to0, -1).String() {
+		t.Fatalf("expected window to roll back by 1 day, got from=%s to=%s", m.historyFrom.String(), m.historyTo.String())
+	}
+	if a.statsCalls != 1 {
+		t.Fatalf("expected stats refresh on window roll, got %d", a.statsCalls)
+	}
+}
+
+func TestModel_History_DownAtBottomAutoRollsWindowForwardOneDay_ClampedAtToday(t *testing.T) {
+	disableTick(t)
+
+	current := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(current, nil)
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	um, cmd := m.Update(keyRune('3'))
+	m = um.(Model)
+	m = applyCmd(m, cmd)
+
+	// Move selection to bottom (today).
+	if m.historyIndex != 6 {
+		t.Fatalf("expected initial historyIndex at 6, got %d", m.historyIndex)
+	}
+
+	from0, to0 := m.historyFrom, m.historyTo
+	a.resetHistoryCounters()
+
+	// Down at bottom should attempt to roll forward, but it's already clamped at today.
+	um, cmd = m.Update(keyRune('j'))
+	m = um.(Model)
+	if cmd != nil {
+		m = applyCmd(m, cmd)
+	}
+
+	if m.historyFrom.String() != from0.String() || m.historyTo.String() != to0.String() {
+		t.Fatalf("expected window clamped at today (no forward roll), got from=%s to=%s", m.historyFrom.String(), m.historyTo.String())
+	}
+	if m.historyIndex != 6 {
+		t.Fatalf("expected index to remain at 6, got %d", m.historyIndex)
+	}
+	if a.statsCalls != 0 {
+		t.Fatalf("expected no stats refresh when clamped, got %d", a.statsCalls)
+	}
+
+	// Roll back one day by auto-roll at top, then roll forward by one day and ensure it stops at today.
+	for i := 0; i < 6; i++ {
+		um, cmd = m.Update(keyRune('k'))
+		m = um.(Model)
+		m = applyCmd(m, cmd)
+	}
+	um, cmd = m.Update(keyRune('k'))
+	m = um.(Model)
+	m = applyCmd(m, cmd)
+	if m.historyTo.String() != addDays(to0, -1).String() {
+		t.Fatalf("expected window shifted back one day")
+	}
+
+	// Now at least one forward roll is possible.
+	for i := 0; i < 6; i++ {
+		um, cmd = m.Update(keyRune('j'))
+		m = um.(Model)
+		m = applyCmd(m, cmd)
+	}
+	a.resetHistoryCounters()
+	um, cmd = m.Update(keyRune('j'))
+	m = um.(Model)
+	m = applyCmd(m, cmd)
+	if m.historyTo.String() != to0.String() {
+		t.Fatalf("expected forward roll back to today, got to=%s", m.historyTo.String())
+	}
+	if a.statsCalls != 1 {
+		t.Fatalf("expected stats refresh on forward roll, got %d", a.statsCalls)
 	}
 }
 

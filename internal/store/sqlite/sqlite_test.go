@@ -204,21 +204,43 @@ func TestSQLiteStore_ListActiveByCreatedDay_FiltersByDay(t *testing.T) {
 	day1 := domain.MustParseDay("2026-03-04")
 	day2 := domain.MustParseDay("2026-03-05")
 
-	created1, err := s.CreateTask(ctx, "a", day1, day1)
+	active1, err := s.CreateTask(ctx, "a", day1, day1)
 	if err != nil {
-		t.Fatalf("create day1: %v", err)
+		t.Fatalf("create active1: %v", err)
 	}
-	_, err = s.CreateTask(ctx, "b", day2, day2)
+	tDone, err := s.CreateTask(ctx, "done", day1, day1)
 	if err != nil {
-		t.Fatalf("create day2: %v", err)
+		t.Fatalf("create done: %v", err)
+	}
+	tAbandoned, err := s.CreateTask(ctx, "abandoned", day1, day1)
+	if err != nil {
+		t.Fatalf("create abandoned: %v", err)
+	}
+	active2, err := s.CreateTask(ctx, "b", day1, day1)
+	if err != nil {
+		t.Fatalf("create active2: %v", err)
+	}
+	_, err = s.CreateTask(ctx, "other day", day2, day2)
+	if err != nil {
+		t.Fatalf("create other day: %v", err)
+	}
+
+	if err := s.MarkDone(ctx, tDone.ID, day1); err != nil {
+		t.Fatalf("mark done: %v", err)
+	}
+	if err := s.MarkAbandoned(ctx, tAbandoned.ID, day1); err != nil {
+		t.Fatalf("mark abandoned: %v", err)
 	}
 
 	out, err := s.ListActiveByCreatedDay(ctx, day1)
 	if err != nil {
 		t.Fatalf("list active by created day: %v", err)
 	}
-	if len(out) != 1 || out[0].ID != created1.ID {
-		t.Fatalf("expected only day1 active task, got %#v", out)
+	if len(out) != 2 {
+		t.Fatalf("expected only day1 active tasks, got %#v", out)
+	}
+	if out[0].ID != active1.ID || out[1].ID != active2.ID {
+		t.Fatalf("expected id ASC order [%d %d], got %#v", active1.ID, active2.ID, out)
 	}
 }
 

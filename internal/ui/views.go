@@ -11,13 +11,22 @@ func renderToday(m Model) string {
 	if m.adding {
 		body = "Add task\n\n" + m.addInput.View()
 	} else {
-		body = m.todayList.View()
+		if len(m.todayList.Items()) == 0 {
+			body = "Nothing due today."
+		} else {
+			body = m.todayList.View()
+		}
 	}
 	return m.frame("Today", body)
 }
 
 func renderUpcoming(m Model) string {
-	body := m.upcomingList.View()
+	var body string
+	if len(m.upcomingList.Items()) == 0 {
+		body = "No upcoming tasks."
+	} else {
+		body = m.upcomingList.View()
+	}
 	return m.frame("Upcoming", body)
 }
 
@@ -43,11 +52,17 @@ func renderHistoryBody(m Model) string {
 	for _, t := range m.historyDone {
 		doneLines = append(doneLines, "- "+t.Title)
 	}
+	if len(m.historyDone) == 0 {
+		doneLines = append(doneLines, "(none)")
+	}
 
 	abLines := make([]string, 0, len(m.historyAbandoned)+1)
 	abLines = append(abLines, "Abandoned")
 	for _, t := range m.historyAbandoned {
 		abLines = append(abLines, "- "+t.Title)
+	}
+	if len(m.historyAbandoned) == 0 {
+		abLines = append(abLines, "(none)")
 	}
 
 	right := strings.Join(append(doneLines, "", strings.Join(abLines, "\n")), "\n")

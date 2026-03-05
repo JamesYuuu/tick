@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/JamesYuuu/tick/internal/app"
@@ -238,13 +239,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		w := msg.Width - 2
-		if w < 0 {
-			w = 0
+		// Fullscreen layout has a fixed 2-line footer (status + help).
+		workspaceHeight := msg.Height - (1 + 1 + 1 + 2)
+		if workspaceHeight < 0 {
+			workspaceHeight = 0
 		}
-		h := bodyHeight(msg.Height)
-		m.todayList.SetSize(w, h)
-		m.upcomingList.SetSize(w, h)
+		innerHeight := workspaceHeight - sheetVertMargin
+		if innerHeight < 0 {
+			innerHeight = 0
+		}
+		workspaceWidth := sheetInnerWidth(msg.Width)
+		m.todayList.SetSize(workspaceWidth, innerHeight)
+		m.upcomingList.SetSize(workspaceWidth, innerHeight)
 		return m, nil
 	case refreshMsg:
 		if msg.err != nil {
@@ -448,19 +454,66 @@ func bodyHeight(windowHeight int) int {
 }
 
 func (m Model) View() string {
-	var out string
+	active := "Today"
+	body := ""
 	switch m.view {
 	case viewToday:
-		out = renderToday(m)
+		active = "Today"
+		body = renderTodayBody(m)
 	case viewUpcoming:
-		out = renderUpcoming(m)
+		active = "Upcoming"
+		body = renderUpcomingBody(m)
 	case viewHistory:
-		out = renderHistory(m)
+		active = "History"
+		body = renderHistoryBody(m)
 	default:
-		out = renderToday(m)
+		active = "Today"
+		body = renderTodayBody(m)
 	}
 
-	// Layout helpers: keep rendering stable in a fullscreen window.
+	header := m.header(active)
+	sep := separatorLine(m.width)
+	status := m.footerStatusLine()
+	help := m.help()
+
+	// Clamp variable-height blocks so zone line positions are stable.
+	header = forceHeight(header, 1)
+	status = forceHeight(status, 1)
+	help = forceHeight(help, 1)
+
+	// Fullscreen layout has a fixed 2-line footer (status + help).
+	workspaceHeight := m.height - (1 + 1 + 1 + 2)
+	if workspaceHeight < 0 {
+		workspaceHeight = 0
+	}
+	innerHeight := workspaceHeight - sheetVertMargin
+	if innerHeight < 0 {
+		innerHeight = 0
+	}
+	workspaceWidth := sheetInnerWidth(m.width)
+	if workspaceWidth > 0 {
+		m.todayList.SetSize(workspaceWidth, innerHeight)
+		m.upcomingList.SetSize(workspaceWidth, innerHeight)
+	}
+	frameBody := forceHeight(body, innerHeight)
+	workspace := m.frame(active, frameBody)
+	workspace = forceHeight(workspace, workspaceHeight)
+
+	var b strings.Builder
+	b.WriteString(header)
+	b.WriteString("\n")
+	b.WriteString(sep)
+	b.WriteString("\n")
+	b.WriteString(workspace)
+	b.WriteString("\n")
+	b.WriteString(sep)
+	b.WriteString("\n")
+	// Status line is always present to keep footer height stable.
+	b.WriteString(status)
+	b.WriteString("\n")
+	b.WriteString(help)
+
+	out := b.String()
 	out = forceHeight(out, m.height)
 	out = padLeftToWidth(out, m.width)
 	return out

@@ -32,12 +32,14 @@ type fakeApp struct {
 	todayCalls    int
 	upcomingCalls int
 
-	historyDoneByDay      map[string][]domain.Task
-	historyAbandonedByDay map[string][]domain.Task
-	historyDoneCalls      int
-	historyAbandonedCalls int
-	lastHistoryDay        domain.Day
-	historyErr            error
+	historyDoneByDay          map[string][]domain.Task
+	historyAbandonedByDay     map[string][]domain.Task
+	historyActiveByCreatedDay map[string][]domain.Task
+	historyDoneCalls          int
+	historyAbandonedCalls     int
+	historyActiveCreatedCalls int
+	lastHistoryDay            domain.Day
+	historyErr                error
 
 	statsRatios   map[string]float64
 	statsCalls    int
@@ -66,18 +68,20 @@ func newFakeApp(currentDay domain.Day, tasks []domain.Task) *fakeApp {
 		}
 	}
 	return &fakeApp{
-		currentDay:            currentDay,
-		nextID:                maxID + 1,
-		tasks:                 tasks,
-		historyDoneByDay:      map[string][]domain.Task{},
-		historyAbandonedByDay: map[string][]domain.Task{},
-		statsRatios:           map[string]float64{},
+		currentDay:                currentDay,
+		nextID:                    maxID + 1,
+		tasks:                     tasks,
+		historyDoneByDay:          map[string][]domain.Task{},
+		historyAbandonedByDay:     map[string][]domain.Task{},
+		historyActiveByCreatedDay: map[string][]domain.Task{},
+		statsRatios:               map[string]float64{},
 	}
 }
 
 func (a *fakeApp) resetHistoryCounters() {
 	a.historyDoneCalls = 0
 	a.historyAbandonedCalls = 0
+	a.historyActiveCreatedCalls = 0
 	a.statsCalls = 0
 }
 
@@ -217,6 +221,16 @@ func (a *fakeApp) HistoryAbandonedByDay(ctx context.Context, day domain.Day) ([]
 		return nil, a.historyErr
 	}
 	return a.historyAbandonedByDay[day.String()], nil
+}
+
+func (a *fakeApp) HistoryActiveByCreatedDay(ctx context.Context, day domain.Day) ([]domain.Task, error) {
+	_ = ctx
+	a.historyActiveCreatedCalls++
+	a.lastHistoryDay = day
+	if a.historyErr != nil {
+		return nil, a.historyErr
+	}
+	return a.historyActiveByCreatedDay[day.String()], nil
 }
 
 func (a *fakeApp) Stats(ctx context.Context, fromDay, toDay domain.Day) (app.OutcomeRatios, error) {

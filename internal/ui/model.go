@@ -41,12 +41,13 @@ type Model struct {
 	todayList    list.Model
 	upcomingList list.Model
 
-	historyFrom      domain.Day
-	historyTo        domain.Day
-	historyIndex     int
-	historyDone      []domain.Task
-	historyAbandoned []domain.Task
-	historyStats     app.OutcomeRatios
+	historyFrom          domain.Day
+	historyTo            domain.Day
+	historyIndex         int
+	historyDone          []domain.Task
+	historyAbandoned     []domain.Task
+	historyActiveCreated []domain.Task
+	historyStats         app.OutcomeRatios
 }
 
 type appClient interface {
@@ -58,6 +59,7 @@ type appClient interface {
 	PostponeOneDay(ctx context.Context, id int64) error
 	HistoryDoneByDay(ctx context.Context, day domain.Day) ([]domain.Task, error)
 	HistoryAbandonedByDay(ctx context.Context, day domain.Day) ([]domain.Task, error)
+	HistoryActiveByCreatedDay(ctx context.Context, day domain.Day) ([]domain.Task, error)
 	Stats(ctx context.Context, fromDay, toDay domain.Day) (app.OutcomeRatios, error)
 }
 
@@ -274,6 +276,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusMsg = ""
 		m.historyDone = msg.done
 		m.historyAbandoned = msg.abandoned
+		m.historyActiveCreated = msg.activeCreated
 		if msg.hasStats {
 			m.historyStats = msg.stats
 		}
@@ -410,11 +413,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 type historyRefreshMsg struct {
-	done      []domain.Task
-	abandoned []domain.Task
-	stats     app.OutcomeRatios
-	hasStats  bool
-	err       error
+	done          []domain.Task
+	abandoned     []domain.Task
+	activeCreated []domain.Task
+	stats         app.OutcomeRatios
+	hasStats      bool
+	err           error
 }
 
 func (m Model) historySelectedDay() domain.Day {
@@ -433,7 +437,11 @@ func (m Model) cmdRefreshHistorySelectedDay() tea.Cmd {
 		if err != nil {
 			return historyRefreshMsg{err: err}
 		}
-		return historyRefreshMsg{done: done, abandoned: ab}
+		activeCreated, err := m.app.HistoryActiveByCreatedDay(ctx, day)
+		if err != nil {
+			return historyRefreshMsg{err: err}
+		}
+		return historyRefreshMsg{done: done, abandoned: ab, activeCreated: activeCreated}
 	}
 }
 
@@ -450,11 +458,15 @@ func (m Model) cmdRefreshHistoryWithStats() tea.Cmd {
 		if err != nil {
 			return historyRefreshMsg{err: err}
 		}
+		activeCreated, err := m.app.HistoryActiveByCreatedDay(ctx, day)
+		if err != nil {
+			return historyRefreshMsg{err: err}
+		}
 		stats, err := m.app.Stats(ctx, from, to)
 		if err != nil {
 			return historyRefreshMsg{err: err}
 		}
-		return historyRefreshMsg{done: done, abandoned: ab, stats: stats, hasStats: true}
+		return historyRefreshMsg{done: done, abandoned: ab, activeCreated: activeCreated, stats: stats, hasStats: true}
 	}
 }
 

@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,9 +78,11 @@ func TestModel_History_ShowsEmptyCopyUnderHeadingsWhenNoOutcomes(t *testing.T) {
 	m = applyCmd(m, cmd)
 
 	bodyOnly := renderHistoryBody(m)
-	re := regexp.MustCompile(`(?s)Done.*\(none\).*Abandoned.*\(none\)`)
-	if !re.MatchString(bodyOnly) {
-		t.Fatalf("expected history body to show empty copy under headings, got:\n%s", bodyOnly)
+	if indexOf(bodyOnly, "(none)") < 0 {
+		t.Fatalf("expected history body to show (none) when there are no rows, got:\n%s", bodyOnly)
+	}
+	if indexOf(bodyOnly, "Done") >= 0 || indexOf(bodyOnly, "Abandoned") >= 0 {
+		t.Fatalf("expected history body to not include Done/Abandoned headings anymore, got:\n%s", bodyOnly)
 	}
 }
 
@@ -94,6 +97,7 @@ func TestModel_History_EnterRefreshesStatsAndSelectedDayLists(t *testing.T) {
 	a.historyAbandonedByDay = map[string][]domain.Task{
 		current.String(): {{ID: 2, Title: "ab-1", Status: domain.StatusAbandoned, CreatedDay: current, DueDay: current}},
 	}
+	a.historyActiveByCreatedDay = map[string][]domain.Task{}
 	a.statsRatios = map[string]float64{"done": 0.25, "abandoned": 0.50}
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
@@ -110,8 +114,8 @@ func TestModel_History_EnterRefreshesStatsAndSelectedDayLists(t *testing.T) {
 	if m.view != viewHistory {
 		t.Fatalf("expected viewHistory")
 	}
-	if a.historyDoneCalls != 1 || a.historyAbandonedCalls != 1 {
-		t.Fatalf("expected done/abandoned called once, got done=%d abandoned=%d", a.historyDoneCalls, a.historyAbandonedCalls)
+	if a.historyDoneCalls != 1 || a.historyAbandonedCalls != 1 || a.historyActiveCreatedCalls != 1 {
+		t.Fatalf("expected done/abandoned/activeCreated called once, got done=%d abandoned=%d activeCreated=%d", a.historyDoneCalls, a.historyAbandonedCalls, a.historyActiveCreatedCalls)
 	}
 	if a.statsCalls != 1 {
 		t.Fatalf("expected stats called once, got %d", a.statsCalls)
@@ -125,8 +129,11 @@ func TestModel_History_EnterRefreshesStatsAndSelectedDayLists(t *testing.T) {
 	}
 
 	v := m.View()
-	if !containsAll(v, []string{"Done", "done-1", "Abandoned", "ab-1", "DoneDelayedRatio", "AbandonedDelayedRatio"}) {
+	if !containsAll(v, []string{"> 03-04", "[✓] done-1", "[✗] ab-1", "DoneDelayedRatio", "AbandonedDelayedRatio"}) {
 		t.Fatalf("expected history view to include lists and ratios, got:\n%s", v)
+	}
+	if indexOf(v, current.String()) >= 0 {
+		t.Fatalf("expected history dates to not include year, got:\n%s", v)
 	}
 
 	bodyOnly := renderHistoryBody(m)
@@ -143,6 +150,7 @@ func TestModel_History_KMovesSelectionUpOneDayAndRefreshes(t *testing.T) {
 	a := newFakeApp(current, nil)
 	a.historyDoneByDay = map[string][]domain.Task{prev.String(): {{ID: 10, Title: "dprev", Status: domain.StatusDone, CreatedDay: prev, DueDay: prev}}}
 	a.historyAbandonedByDay = map[string][]domain.Task{}
+	a.historyActiveByCreatedDay = map[string][]domain.Task{}
 	a.statsRatios = map[string]float64{}
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
@@ -166,8 +174,8 @@ func TestModel_History_KMovesSelectionUpOneDayAndRefreshes(t *testing.T) {
 		t.Fatalf("expected refresh for day=%s, got %s", prev.String(), a.lastHistoryDay.String())
 	}
 	v := m.View()
-	if !containsAll(v, []string{"> " + prev.String(), "dprev"}) {
-		t.Fatalf("expected selection marker on %s and content updated, got:\n%s", prev.String(), v)
+	if !containsAll(v, []string{"> 03-03", "[✓] dprev"}) {
+		t.Fatalf("expected selection marker and content updated, got:\n%s", v)
 	}
 }
 
@@ -179,6 +187,7 @@ func TestModel_History_KDoesNotRefreshStats(t *testing.T) {
 	a := newFakeApp(current, nil)
 	a.historyDoneByDay = map[string][]domain.Task{prev.String(): {{ID: 10, Title: "dprev", Status: domain.StatusDone, CreatedDay: prev, DueDay: prev}}}
 	a.historyAbandonedByDay = map[string][]domain.Task{}
+	a.historyActiveByCreatedDay = map[string][]domain.Task{}
 	a.statsRatios = map[string]float64{"done": 0.25, "abandoned": 0.50}
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
@@ -212,6 +221,7 @@ func TestModel_History_RefreshPassesThroughHistoryDoneError(t *testing.T) {
 	current := domain.MustParseDay("2026-03-04")
 	a := newFakeApp(current, nil)
 	a.historyErr = errors.New("history done: boom")
+	a.historyActiveByCreatedDay = map[string][]domain.Task{}
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
 	um, cmd := m.Update(keyTab())
@@ -236,6 +246,7 @@ func TestModel_History_HNoLongerShiftsWindow(t *testing.T) {
 	a := newFakeApp(current, nil)
 	a.historyDoneByDay = map[string][]domain.Task{}
 	a.historyAbandonedByDay = map[string][]domain.Task{}
+	a.historyActiveByCreatedDay = map[string][]domain.Task{}
 	a.statsRatios = map[string]float64{}
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
@@ -306,6 +317,7 @@ func TestModel_History_LeftRightKeysNoLongerShiftWindow(t *testing.T) {
 
 	current := domain.MustParseDay("2026-03-04")
 	a := newFakeApp(current, nil)
+	a.historyActiveByCreatedDay = map[string][]domain.Task{}
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
 	um, cmd := m.Update(keyTab())
@@ -345,6 +357,7 @@ func TestModel_History_UpAtTopAutoRollsWindowBackOneDay(t *testing.T) {
 
 	current := domain.MustParseDay("2026-03-04")
 	a := newFakeApp(current, nil)
+	a.historyActiveByCreatedDay = map[string][]domain.Task{}
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
 	um, cmd := m.Update(keyTab())
@@ -390,6 +403,7 @@ func TestModel_History_DownAtBottomAutoRollsWindowForwardOneDay_ClampedAtToday(t
 
 	current := domain.MustParseDay("2026-03-04")
 	a := newFakeApp(current, nil)
+	a.historyActiveByCreatedDay = map[string][]domain.Task{}
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
 	um, cmd := m.Update(keyTab())
@@ -459,6 +473,7 @@ func TestModel_History_DownAtBottom_WhenWindowLagsToday_MovesForwardOnlyOneDay(t
 
 	today := domain.MustParseDay("2026-03-10")
 	a := newFakeApp(today, nil)
+	a.historyActiveByCreatedDay = map[string][]domain.Task{}
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)}, time.UTC)
 	um, cmd := m.Update(keyTab())
@@ -518,4 +533,58 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+func TestRenderHistoryBody_FormatsRowsAndHighlightsDelayed(t *testing.T) {
+	disableTick(t)
+
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	today := domain.MustParseDay("2026-03-04")
+	selected := domain.MustParseDay("2026-03-03")
+
+	m := NewWithDeps(newFakeApp(today, nil), fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	m.view = viewHistory
+	m.historyFrom = selected
+	m.historyIndex = 0
+
+	m.historyDone = []domain.Task{{ID: 1, Title: "done-late", Status: domain.StatusDone, CreatedDay: selected, DueDay: domain.MustParseDay("2026-03-02")}}
+	m.historyAbandoned = []domain.Task{{ID: 2, Title: "ab-late", Status: domain.StatusAbandoned, CreatedDay: selected, DueDay: domain.MustParseDay("2026-03-02")}}
+	m.historyActiveCreated = []domain.Task{
+		{ID: 3, Title: "active-late", Status: domain.StatusActive, CreatedDay: selected, DueDay: domain.MustParseDay("2026-03-03")},
+		{ID: 4, Title: "active-not-late", Status: domain.StatusActive, CreatedDay: selected, DueDay: today},
+	}
+
+	body := renderHistoryBody(m)
+	if !containsAll(body, []string{"> 03-03", "[✓] done-late", "[✗] ab-late", "[ ] active-late"}) {
+		t.Fatalf("expected formatted rows, got:\n%s", body)
+	}
+	if indexOf(body, "active-not-late") >= 0 {
+		t.Fatalf("expected non-overdue active task to be filtered out, got:\n%s", body)
+	}
+
+	red := regexp.MustCompile("\\x1b\\[[0-9;]*(31|91|38;5;1|38;5;9)[0-9;]*m")
+	if !red.MatchString(lineContaining(body, "[✓] done-late")) {
+		t.Fatalf("expected delayed done row to be red, got %q", body)
+	}
+	if !red.MatchString(lineContaining(body, "[✗] ab-late")) {
+		t.Fatalf("expected delayed abandoned row to be red, got %q", body)
+	}
+	if !red.MatchString(lineContaining(body, "[ ] active-late")) {
+		t.Fatalf("expected overdue active row to be red, got %q", body)
+	}
+
+	if !(indexOf(body, "[✓] done-late") < indexOf(body, "[✗] ab-late") && indexOf(body, "[✗] ab-late") < indexOf(body, "[ ] active-late")) {
+		t.Fatalf("expected group order done -> abandoned -> overdue active, got:\n%s", body)
+	}
+}
+
+func lineContaining(s, sub string) string {
+	for _, ln := range strings.Split(s, "\n") {
+		if strings.Contains(ln, sub) {
+			return ln
+		}
+	}
+	return ""
 }

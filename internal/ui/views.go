@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 
+	"github.com/JamesYuuu/tick/internal/domain"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -39,6 +40,9 @@ func renderHistory(m Model) string {
 }
 
 func renderHistoryBody(m Model) string {
+	selectedDay := addDays(m.historyFrom, m.historyIndex)
+
+	// Left column: 7-day list as MM-DD.
 	days := make([]string, 0, 7)
 	for i := 0; i < 7; i++ {
 		day := addDays(m.historyFrom, i)
@@ -46,34 +50,84 @@ func renderHistoryBody(m Model) string {
 		if i == m.historyIndex {
 			prefix = "> "
 		}
-		days = append(days, prefix+day.String())
+		days = append(days, prefix+fmtMMDD(day))
 	}
 	left := strings.Join(days, "\n")
 
-	doneLines := make([]string, 0, len(m.historyDone)+1)
-	doneLines = append(doneLines, "Done")
+	// Right column: outcomes for selected day.
+	rows := make([]string, 0, len(m.historyDone)+len(m.historyAbandoned)+len(m.historyActiveCreated)+1)
+
 	for _, t := range m.historyDone {
-		doneLines = append(doneLines, "- "+t.Title)
+		line := "[✓] " + t.Title
+		if t.DueDay.Before(selectedDay) {
+			line = m.styles.Delayed.Render(line)
+		}
+		rows = append(rows, line)
 	}
-	if len(m.historyDone) == 0 {
-		doneLines = append(doneLines, "(none)")
-	}
-
-	abLines := make([]string, 0, len(m.historyAbandoned)+1)
-	abLines = append(abLines, "Abandoned")
 	for _, t := range m.historyAbandoned {
-		abLines = append(abLines, "- "+t.Title)
-	}
-	if len(m.historyAbandoned) == 0 {
-		abLines = append(abLines, "(none)")
+		line := "[✗] " + t.Title
+		if t.DueDay.Before(selectedDay) {
+			line = m.styles.Delayed.Render(line)
+		}
+		rows = append(rows, line)
 	}
 
-	right := strings.Join(append(doneLines, "", strings.Join(abLines, "\n")), "\n")
+	// Overdue active tasks created on selected day.
+	today := m.currentDay()
+	for _, t := range m.historyActiveCreated {
+		if t.Status != domain.StatusActive {
+			continue
+		}
+		if !t.DueDay.Before(today) {
+			continue
+		}
+		line := m.styles.Delayed.Render("[ ] " + t.Title)
+		rows = append(rows, line)
+	}
+	if len(rows) == 0 {
+		rows = append(rows, "(none)")
+	}
+	right := strings.Join(rows, "\n")
+
+	// Divider: ASCII '|' sized to max lines.
+	divider := verticalDivider(max(linesCount(left), linesCount(right)))
 
 	cols := lipgloss.JoinHorizontal(lipgloss.Top,
-		lipgloss.NewStyle().Width(12).Render(left),
-		"  ",
+		lipgloss.NewStyle().Width(7).Render(left),
+		" ",
+		divider,
+		" ",
 		right,
 	)
 	return cols
+}
+
+func fmtMMDD(d domain.Day) string {
+	// domain.Day is normalized to UTC midnight.
+	return d.Time().Format("01-02")
+}
+
+func linesCount(s string) int {
+	if s == "" {
+		return 0
+	}
+	return strings.Count(s, "\n") + 1
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func verticalDivider(h int) string {
+	if h <= 0 {
+		return ""
+	}
+	lines := make([]string, 0, h)
+	for i := 0; i < h; i++ {
+		lines = append(lines, "|")
+	}
+	return strings.Join(lines, "\n")
 }

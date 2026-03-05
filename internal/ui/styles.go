@@ -19,6 +19,51 @@ type styles struct {
 	Delayed  lipgloss.Style
 }
 
+const maxContentWidth = 96
+
+// padLeftToWidth prefixes each line with spaces so the rendered block is
+// centered within the given window width, capped by maxContentWidth.
+//
+// ASCII-only: assumes spaces are width 1 and doesn't account for rune widths.
+func padLeftToWidth(s string, windowWidth int) string {
+	contentWidth := windowWidth
+	if contentWidth > maxContentWidth {
+		contentWidth = maxContentWidth
+	}
+	pad := (windowWidth - contentWidth) / 2
+	if pad <= 0 || s == "" {
+		return s
+	}
+
+	prefix := strings.Repeat(" ", pad)
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = prefix + lines[i]
+	}
+	return strings.Join(lines, "\n")
+}
+
+// forceHeight ensures the string has exactly h lines by adding or trimming
+// trailing newlines.
+func forceHeight(s string, h int) string {
+	if h <= 0 {
+		return s
+	}
+	trimmed := strings.TrimRight(s, "\n")
+	parts := []string{""}
+	if trimmed != "" {
+		parts = strings.Split(trimmed, "\n")
+	}
+	if len(parts) > h {
+		parts = parts[:h]
+	}
+	for len(parts) < h {
+		// Use a single space so the line survives TrimRight("\n") callers.
+		parts = append(parts, " ")
+	}
+	return strings.Join(parts, "\n")
+}
+
 func defaultStyles() styles {
 	sheetBorder := lipgloss.Border{
 		Top:         "-",

@@ -448,14 +448,20 @@ func bodyHeight(windowHeight int) int {
 }
 
 func (m Model) View() string {
+	var out string
 	switch m.view {
 	case viewToday:
-		return renderToday(m)
+		out = renderToday(m)
 	case viewUpcoming:
-		return renderUpcoming(m)
+		out = renderUpcoming(m)
 	case viewHistory:
-		return renderHistory(m)
+		out = renderHistory(m)
 	default:
-		return renderToday(m)
+		out = renderToday(m)
 	}
+
+	// Layout helpers: keep rendering stable in a fullscreen window.
+	out = forceHeight(out, m.height)
+	out = padLeftToWidth(out, m.width)
+	return out
 }

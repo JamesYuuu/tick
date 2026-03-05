@@ -94,7 +94,7 @@ func (m Model) header(active string) string {
 
 func (m Model) tab(name string, on bool) string {
 	if on {
-		return m.styles.TabOn.Render("[" + name + "]")
+		return m.styles.TabOn.Render("{" + name + "}")
 	}
 	return m.styles.Tab.Render(name)
 }

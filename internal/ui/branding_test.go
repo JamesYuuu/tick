@@ -57,3 +57,21 @@ func TestBranding_Frame_RendersSheetAndStableFooterWithStatus(t *testing.T) {
 		t.Fatalf("expected View to include ASCII sheet border line like '+---+', got: %q", out)
 	}
 }
+
+func TestBranding_Header_ActiveTabHasMarker(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	day := domain.DayFromTime(time.Date(2026, 3, 5, 0, 0, 0, 0, time.UTC))
+	a := newFakeApp(day, nil)
+
+	m := NewWithDeps(a, fakeClock{now: day.Time()}, time.UTC)
+
+	out := m.View()
+	if !strings.Contains(out, "{Today}") {
+		t.Fatalf("expected active tab to include marker {Today}, got: %q", out)
+	}
+	if strings.Contains(out, "{Upcoming}") || strings.Contains(out, "{History}") {
+		t.Fatalf("expected inactive tabs to not have markers, got: %q", out)
+	}
+}

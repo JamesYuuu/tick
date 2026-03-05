@@ -527,3 +527,87 @@ func TestModel_View_FillsWindowHeightAndCentersWhenWide(t *testing.T) {
 		}
 	}
 }
+
+func TestModel_View_RendersThreeZonesAndFooterHelp(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	day := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(day, nil)
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	const w = 80
+	const h = 24
+	um, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+	m = um.(Model)
+
+	out := m.View()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) == 0 {
+		t.Fatalf("expected View to return at least 1 line")
+	}
+	if !strings.Contains(lines[0], "[tick]") {
+		t.Fatalf("expected first line to contain [tick], got %q", lines[0])
+	}
+
+	sepCount := 0
+	for _, ln := range lines {
+		trimmed := strings.TrimLeft(ln, " ")
+		trimmed = strings.Trim(trimmed, " ")
+		if len(trimmed) == w && strings.Trim(trimmed, "-") == "" {
+			sepCount++
+		}
+	}
+	if sepCount != 2 {
+		t.Fatalf("expected exactly 2 separator lines of %d dashes, got %d", w, sepCount)
+	}
+
+	if !strings.Contains(lines[len(lines)-1], "q:Quit") {
+		t.Fatalf("expected last line to contain q:Quit, got %q", lines[len(lines)-1])
+	}
+}
+
+func TestModel_View_UsesFixedZoneLinePositions_80x24(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	day := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(day, nil)
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	const w = 80
+	const h = 24
+	um, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+	m = um.(Model)
+
+	// Simulate sheet rendering producing multi-line header content (e.g. wrapping).
+	m.styles.Tab = m.styles.Tab.Width(1)
+	m.styles.TabOn = m.styles.TabOn.Width(1)
+
+	out := m.View()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != h {
+		t.Fatalf("expected View to return exactly %d lines, got %d", h, len(lines))
+	}
+	if !strings.Contains(lines[0], "[tick]") {
+		t.Fatalf("expected header at line 1 to contain [tick], got %q", lines[0])
+	}
+
+	sep := strings.Repeat("-", w)
+	if lines[1] != sep {
+		t.Fatalf("expected separator at line 2, got %q", lines[1])
+	}
+
+	workspaceHeight := h - 5 // header(1) + sep(1) + workspace + sep(1) + status(1) + help(1)
+	sepIndex := 2 + workspaceHeight
+	if sepIndex >= len(lines) {
+		t.Fatalf("test invalid: expected separator index %d within %d lines", sepIndex, len(lines))
+	}
+	if lines[sepIndex] != sep {
+		t.Fatalf("expected separator after workspace at line %d, got %q", sepIndex+1, lines[sepIndex])
+	}
+
+	if !strings.Contains(lines[len(lines)-1], "q:Quit") {
+		t.Fatalf("expected help at last line to contain q:Quit, got %q", lines[len(lines)-1])
+	}
+}

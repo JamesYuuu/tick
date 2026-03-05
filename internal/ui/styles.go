@@ -21,16 +21,45 @@ type styles struct {
 
 const maxContentWidth = 96
 
+func contentWidth(windowWidth int) int {
+	if windowWidth <= 0 {
+		return 0
+	}
+	if windowWidth > maxContentWidth {
+		return maxContentWidth
+	}
+	return windowWidth
+}
+
+// Sheet styles: border (1+1) + padding (1+1).
+const sheetHorizMargin = 4
+
+// Sheet styles: top + bottom border.
+const sheetVertMargin = 2
+
+func sheetInnerWidth(windowWidth int) int {
+	w := contentWidth(windowWidth) - sheetHorizMargin
+	if w < 0 {
+		return 0
+	}
+	return w
+}
+
+func separatorLine(windowWidth int) string {
+	w := contentWidth(windowWidth)
+	if w <= 0 {
+		return ""
+	}
+	return strings.Repeat("-", w)
+}
+
 // padLeftToWidth prefixes each line with spaces so the rendered block is
 // centered within the given window width, capped by maxContentWidth.
 //
 // ASCII-only: assumes spaces are width 1 and doesn't account for rune widths.
 func padLeftToWidth(s string, windowWidth int) string {
-	contentWidth := windowWidth
-	if contentWidth > maxContentWidth {
-		contentWidth = maxContentWidth
-	}
-	pad := (windowWidth - contentWidth) / 2
+	cw := contentWidth(windowWidth)
+	pad := (windowWidth - cw) / 2
 	if pad <= 0 || s == "" {
 		return s
 	}
@@ -90,36 +119,24 @@ func defaultStyles() styles {
 }
 
 func (m Model) frame(title string, body string) string {
-	header := m.header(title)
-	help := m.help()
-	sheet := m.styles.Sheet.Render(body)
-	status := ""
+	_ = title
+	sheet := m.styles.Sheet
+	if w := contentWidth(m.width); w > 0 {
+		sheet = sheet.Width(w)
+	}
+	return sheet.Render(body)
+}
+
+func (m Model) footerStatusLine() string {
 	if m.statusMsg != "" {
-		status = m.styles.Status.Render(m.statusMsg)
+		return m.styles.Status.Render(m.statusMsg)
 	}
-
-	historyFooter := ""
-	if m.view == viewHistory {
-		historyFooter = "DoneDelayedRatio: " + fmtRatio(m.historyStats.DoneDelayedRatio) +
-			"  AbandonedDelayedRatio: " + fmtRatio(m.historyStats.AbandonedDelayedRatio)
+	if m.view != viewHistory {
+		return ""
 	}
-
-	var b strings.Builder
-	b.WriteString(header)
-	b.WriteString("\n\n")
-	b.WriteString(sheet)
-	b.WriteString("\n\n")
-	if status != "" {
-		b.WriteString(status)
-		b.WriteString("\n")
-	}
-	if status == "" && historyFooter != "" {
-		b.WriteString(m.styles.Status.Render(historyFooter))
-		b.WriteString("\n")
-	}
-	b.WriteString(help)
-	b.WriteString("\n")
-	return b.String()
+	historyFooter := "DoneDelayedRatio: " + fmtRatio(m.historyStats.DoneDelayedRatio) +
+		"  AbandonedDelayedRatio: " + fmtRatio(m.historyStats.AbandonedDelayedRatio)
+	return m.styles.Status.Render(historyFooter)
 }
 
 func fmtRatio(f float64) string {
@@ -128,7 +145,7 @@ func fmtRatio(f float64) string {
 }
 
 func (m Model) header(active string) string {
-	left := m.styles.AppTitle.Render("tick")
+	left := m.styles.AppTitle.Render("[tick]")
 	tabs := []string{
 		m.tab("Today", active == "Today"),
 		m.tab("Upcoming", active == "Upcoming"),

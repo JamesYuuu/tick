@@ -7,27 +7,30 @@ import (
 )
 
 func renderToday(m Model) string {
-	var body string
-	if m.adding {
-		body = "Add task\n\n" + m.addInput.View()
-	} else {
-		if len(m.todayList.Items()) == 0 {
-			body = "Nothing due today."
-		} else {
-			body = m.todayList.View()
-		}
-	}
+	body := renderTodayBody(m)
 	return m.frame("Today", body)
 }
 
-func renderUpcoming(m Model) string {
-	var body string
-	if len(m.upcomingList.Items()) == 0 {
-		body = "No upcoming tasks."
-	} else {
-		body = m.upcomingList.View()
+func renderTodayBody(m Model) string {
+	if m.adding {
+		return "Add task\n\n" + m.addInput.View()
 	}
+	if len(m.todayList.Items()) == 0 {
+		return "Nothing due today."
+	}
+	return m.todayList.View()
+}
+
+func renderUpcoming(m Model) string {
+	body := renderUpcomingBody(m)
 	return m.frame("Upcoming", body)
+}
+
+func renderUpcomingBody(m Model) string {
+	if len(m.upcomingList.Items()) == 0 {
+		return "No upcoming tasks."
+	}
+	return m.upcomingList.View()
 }
 
 func renderHistory(m Model) string {

@@ -120,13 +120,21 @@ func (d todayItemDelegate) Render(w io.Writer, m list.Model, index int, item lis
 		return
 	}
 
+	selected := index == m.Index()
 	prefix := "  "
-	if index == m.Index() {
+	if selected {
 		prefix = "> "
 	}
 	line := prefix + it.task.Title
+
 	if it.task.IsDelayed(d.currentDay) {
-		line = d.styles.Delayed.Render(line)
+		if selected {
+			line = d.styles.RowSelDl.Render(line)
+		} else {
+			line = d.styles.Delayed.Render(line)
+		}
+	} else if selected {
+		line = d.styles.RowSel.Render(line)
 	}
 	_, _ = fmt.Fprint(w, line)
 }
@@ -141,11 +149,16 @@ func (d simpleItemDelegate) Render(w io.Writer, m list.Model, index int, item li
 	if !ok {
 		return
 	}
+	selected := index == m.Index()
 	prefix := "  "
-	if index == m.Index() {
+	if selected {
 		prefix = "> "
 	}
-	_, _ = fmt.Fprint(w, prefix+it.task.Title)
+	line := prefix + it.task.Title
+	if selected {
+		line = d.styles.RowSel.Render(line)
+	}
+	_, _ = fmt.Fprint(w, line)
 }
 
 func (m Model) Init() tea.Cmd {
@@ -387,7 +400,6 @@ type historyRefreshMsg struct {
 func (m Model) historySelectedDay() domain.Day {
 	return addDays(m.historyFrom, m.historyIndex)
 }
-
 
 func (m Model) cmdRefreshHistorySelectedDay() tea.Cmd {
 	day := m.historySelectedDay()

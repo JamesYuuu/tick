@@ -9,20 +9,20 @@ import (
 func renderToday(m Model) string {
 	var body string
 	if m.adding {
-		body = m.styles.Body.Render("Add task\n\n" + m.addInput.View())
+		body = "Add task\n\n" + m.addInput.View()
 	} else {
-		body = m.styles.Body.Render(m.todayList.View())
+		body = m.todayList.View()
 	}
 	return m.frame("Today", body)
 }
 
 func renderUpcoming(m Model) string {
-	body := m.styles.Body.Render(m.upcomingList.View())
+	body := m.upcomingList.View()
 	return m.frame("Upcoming", body)
 }
 
 func renderHistory(m Model) string {
-	body := m.styles.Body.Render(renderHistoryBody(m))
+	body := renderHistoryBody(m)
 	return m.frame("History", body)
 }
 

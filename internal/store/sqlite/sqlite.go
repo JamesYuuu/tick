@@ -126,7 +126,7 @@ func (s *SQLiteStore) ListActiveByCreatedDay(ctx context.Context, day domain.Day
 	for rows.Next() {
 		t, err := scanTask(rows)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("list active by created day: %w", err)
 		}
 		out = append(out, t)
 	}

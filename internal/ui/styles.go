@@ -12,27 +12,42 @@ type styles struct {
 	Tab      lipgloss.Style
 	TabOn    lipgloss.Style
 	Help     lipgloss.Style
-	Body     lipgloss.Style
+	Sheet    lipgloss.Style
+	RowSel   lipgloss.Style
+	RowSelDl lipgloss.Style
 	Status   lipgloss.Style
 	Delayed  lipgloss.Style
 }
 
 func defaultStyles() styles {
-	base := lipgloss.NewStyle().Padding(0, 1)
+	sheetBorder := lipgloss.Border{
+		Top:         "-",
+		Bottom:      "-",
+		Left:        "|",
+		Right:       "|",
+		TopLeft:     "+",
+		TopRight:    "+",
+		BottomLeft:  "+",
+		BottomRight: "+",
+	}
+
 	return styles{
 		AppTitle: lipgloss.NewStyle().Bold(true),
 		Tab:      lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
 		TabOn:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")),
 		Help:     lipgloss.NewStyle().Foreground(lipgloss.Color("242")),
-		Body:     base,
+		Sheet:    lipgloss.NewStyle().Padding(0, 1).Border(sheetBorder).BorderForeground(lipgloss.Color("240")),
+		RowSel:   lipgloss.NewStyle().Background(lipgloss.Color("254")).Foreground(lipgloss.Color("236")),
+		RowSelDl: lipgloss.NewStyle().Background(lipgloss.Color("254")).Foreground(lipgloss.Color("1")),
 		Status:   lipgloss.NewStyle().Foreground(lipgloss.Color("214")),
-		Delayed:  lipgloss.NewStyle().Foreground(lipgloss.Color("9")),
+		Delayed:  lipgloss.NewStyle().Foreground(lipgloss.Color("1")),
 	}
 }
 
 func (m Model) frame(title string, body string) string {
 	header := m.header(title)
 	help := m.help()
+	sheet := m.styles.Sheet.Render(body)
 	status := ""
 	if m.statusMsg != "" {
 		status = m.styles.Status.Render(m.statusMsg)
@@ -47,7 +62,7 @@ func (m Model) frame(title string, body string) string {
 	var b strings.Builder
 	b.WriteString(header)
 	b.WriteString("\n\n")
-	b.WriteString(body)
+	b.WriteString(sheet)
 	b.WriteString("\n\n")
 	if status != "" {
 		b.WriteString(status)

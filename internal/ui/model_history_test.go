@@ -2,16 +2,87 @@ package ui
 
 import (
 	"errors"
+	"regexp"
 	"testing"
 	"time"
 
 	"github.com/JamesYuuu/tick/internal/domain"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
-func TestModel_History_EnterRefreshesStatsAndSelectedDayLists(t *testing.T) {
+func disableTick(t *testing.T) {
 	orig := tickEvery
 	tickEvery = 0
 	t.Cleanup(func() { tickEvery = orig })
+}
+
+func TestModel_Today_ShowsEmptyStateWhenNoTasks(t *testing.T) {
+	disableTick(t)
+
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	day := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(day, nil)
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	um, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = um.(Model)
+	m = applyCmd(m, m.Init())
+
+	out := m.View()
+	if indexOf(out, "Nothing due today.") < 0 {
+		t.Fatalf("expected empty state copy for today view, got:\n%s", out)
+	}
+}
+
+func TestModel_Upcoming_ShowsEmptyStateWhenNoTasks(t *testing.T) {
+	disableTick(t)
+
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	day := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(day, nil)
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	um, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = um.(Model)
+	m = applyCmd(m, m.Init())
+
+	// Switch to Upcoming view and refresh lists.
+	um, cmd := m.Update(keyRune('2'))
+	m = um.(Model)
+	m = applyCmd(m, cmd)
+
+	out := m.View()
+	if indexOf(out, "No upcoming tasks.") < 0 {
+		t.Fatalf("expected empty state copy for upcoming view, got:\n%s", out)
+	}
+}
+
+func TestModel_History_ShowsEmptyCopyUnderHeadingsWhenNoOutcomes(t *testing.T) {
+	disableTick(t)
+
+	day := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(day, nil)
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	um, cmd := m.Update(keyRune('3'))
+	m = um.(Model)
+	m = applyCmd(m, cmd)
+
+	bodyOnly := renderHistoryBody(m)
+	re := regexp.MustCompile(`(?s)Done.*\(none\).*Abandoned.*\(none\)`)
+	if !re.MatchString(bodyOnly) {
+		t.Fatalf("expected history body to show empty copy under headings, got:\n%s", bodyOnly)
+	}
+}
+
+func TestModel_History_EnterRefreshesStatsAndSelectedDayLists(t *testing.T) {
+	disableTick(t)
 
 	current := domain.MustParseDay("2026-03-04")
 	a := newFakeApp(current, nil)
@@ -61,9 +132,7 @@ func TestModel_History_EnterRefreshesStatsAndSelectedDayLists(t *testing.T) {
 }
 
 func TestModel_History_KMovesSelectionUpOneDayAndRefreshes(t *testing.T) {
-	orig := tickEvery
-	tickEvery = 0
-	t.Cleanup(func() { tickEvery = orig })
+	disableTick(t)
 
 	current := domain.MustParseDay("2026-03-04")
 	prev := domain.DayFromTime(current.Time().AddDate(0, 0, -1))
@@ -97,9 +166,7 @@ func TestModel_History_KMovesSelectionUpOneDayAndRefreshes(t *testing.T) {
 }
 
 func TestModel_History_KDoesNotRefreshStats(t *testing.T) {
-	orig := tickEvery
-	tickEvery = 0
-	t.Cleanup(func() { tickEvery = orig })
+	disableTick(t)
 
 	current := domain.MustParseDay("2026-03-04")
 	prev := domain.DayFromTime(current.Time().AddDate(0, 0, -1))
@@ -132,9 +199,7 @@ func TestModel_History_KDoesNotRefreshStats(t *testing.T) {
 }
 
 func TestModel_History_RefreshPassesThroughHistoryDoneError(t *testing.T) {
-	orig := tickEvery
-	tickEvery = 0
-	t.Cleanup(func() { tickEvery = orig })
+	disableTick(t)
 
 	current := domain.MustParseDay("2026-03-04")
 	a := newFakeApp(current, nil)
@@ -155,9 +220,7 @@ func TestModel_History_RefreshPassesThroughHistoryDoneError(t *testing.T) {
 }
 
 func TestModel_History_HShiftsWindowBackOneDayAndRefreshesStats(t *testing.T) {
-	orig := tickEvery
-	tickEvery = 0
-	t.Cleanup(func() { tickEvery = orig })
+	disableTick(t)
 
 	current := domain.MustParseDay("2026-03-04")
 	shiftedTo := domain.DayFromTime(current.Time().AddDate(0, 0, -1))

@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 )
 
@@ -609,5 +610,52 @@ func TestModel_View_UsesFixedZoneLinePositions_80x24(t *testing.T) {
 
 	if !strings.Contains(lines[len(lines)-1], "q:Quit") {
 		t.Fatalf("expected help at last line to contain q:Quit, got %q", lines[len(lines)-1])
+	}
+}
+
+func TestModel_View_NarrowWidth_DoesNotOverflowContentWidth(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	day := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(day, []domain.Task{{ID: 1, Title: "a very very very very very long task title", Status: domain.StatusActive, CreatedDay: day, DueDay: day}})
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	const w = 50
+	const h = 20
+	um, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+	m = um.(Model)
+	m = applyCmd(m, m.Init())
+
+	out := m.View()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+
+	cw := contentWidth(w)
+	pad := (w - cw) / 2
+	prefix := strings.Repeat(" ", pad)
+
+	for i, ln := range lines {
+		if pad > 0 && strings.HasPrefix(ln, prefix) {
+			ln = ln[pad:]
+		}
+		if ansi.StringWidth(ln) > cw {
+			t.Fatalf("expected line %d to be <= %d cells (after removing centering pad), got %d: %q", i+1, cw, ansi.StringWidth(ln), ln)
+		}
+	}
+}
+
+func TestModel_WindowSize_SetsAddInputWidthToSheetInnerWidth(t *testing.T) {
+	day := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(day, nil)
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	const w = 50
+	const h = 20
+	um, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+	m = um.(Model)
+
+	want := sheetInnerWidth(w)
+	if m.addInput.Width != want {
+		t.Fatalf("expected addInput width to be %d, got %d", want, m.addInput.Width)
 	}
 }

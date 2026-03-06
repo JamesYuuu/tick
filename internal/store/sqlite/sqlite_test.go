@@ -244,7 +244,7 @@ func TestSQLiteStore_ListActiveByCreatedDay_FiltersByDay(t *testing.T) {
 	}
 }
 
-func TestSQLiteStore_MarkDone_NotFound_WrapsNoRows(t *testing.T) {
+func TestSQLiteStore_MarkStatus_NotFound_WrapsNoRows(t *testing.T) {
 	ctx := context.Background()
 
 	s, err := sqlite.OpenInMemory()
@@ -255,37 +255,42 @@ func TestSQLiteStore_MarkDone_NotFound_WrapsNoRows(t *testing.T) {
 		_ = s.Close()
 	})
 
-	id := int64(12345)
-	if err := s.MarkDone(ctx, id, domain.MustParseDay("2026-03-05")); err == nil {
-		t.Fatalf("expected error")
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("expected errors.Is(err, sql.ErrNoRows) true, got %v", err)
-	} else if err == sql.ErrNoRows {
-		t.Fatalf("expected wrapped error, got %v", err)
-	} else if !strings.Contains(err.Error(), "mark done") {
-		t.Fatalf("expected context in error, got %v", err)
+	tests := []struct {
+		name    string
+		call    func(*sqlite.SQLiteStore, context.Context) error
+		wantSub string
+	}{
+		{
+			name: "done",
+			call: func(s *sqlite.SQLiteStore, ctx context.Context) error {
+				return s.MarkDone(ctx, 12345, domain.MustParseDay("2026-03-05"))
+			},
+			wantSub: "mark done",
+		},
+		{
+			name: "abandoned",
+			call: func(s *sqlite.SQLiteStore, ctx context.Context) error {
+				return s.MarkAbandoned(ctx, 12345, domain.MustParseDay("2026-03-06"))
+			},
+			wantSub: "mark abandoned",
+		},
 	}
-}
 
-func TestSQLiteStore_MarkAbandoned_NotFound_WrapsNoRows(t *testing.T) {
-	ctx := context.Background()
-
-	s, err := sqlite.OpenInMemory()
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = s.Close()
-	})
-
-	id := int64(12345)
-	if err := s.MarkAbandoned(ctx, id, domain.MustParseDay("2026-03-06")); err == nil {
-		t.Fatalf("expected error")
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("expected errors.Is(err, sql.ErrNoRows) true, got %v", err)
-	} else if err == sql.ErrNoRows {
-		t.Fatalf("expected wrapped error, got %v", err)
-	} else if !strings.Contains(err.Error(), "mark abandoned") {
-		t.Fatalf("expected context in error, got %v", err)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.call(s, ctx)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				t.Fatalf("expected errors.Is(err, sql.ErrNoRows) true, got %v", err)
+			}
+			if err == sql.ErrNoRows {
+				t.Fatalf("expected wrapped error, got %v", err)
+			}
+			if !strings.Contains(err.Error(), tc.wantSub) {
+				t.Fatalf("expected context substring %q in error, got %v", tc.wantSub, err)
+			}
+		})
 	}
 }

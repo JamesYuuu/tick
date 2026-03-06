@@ -11,33 +11,8 @@ import (
 	"github.com/muesli/termenv"
 )
 
-func setImmediateTick(t *testing.T) {
-	orig := tickEvery
-	tickEvery = 0
-	t.Cleanup(func() { tickEvery = orig })
-}
-
-func execBatchCmds(cmd tea.Cmd) ([]tea.Msg, bool) {
-	if cmd == nil {
-		return nil, false
-	}
-	m := cmd()
-	s, ok := m.(tea.BatchMsg)
-	if !ok {
-		return []tea.Msg{m}, false
-	}
-	out := make([]tea.Msg, 0, len(s))
-	for _, c := range s {
-		if c == nil {
-			continue
-		}
-		out = append(out, c())
-	}
-	return out, true
-}
-
 func TestModel_Tick_ReschedulesAndDoesNotRefreshWhenDayUnchanged(t *testing.T) {
-	setImmediateTick(t)
+	disableTick(t)
 
 	current := domain.MustParseDay("2026-03-04")
 	a := newFakeApp(current, nil)
@@ -53,7 +28,7 @@ func TestModel_Tick_ReschedulesAndDoesNotRefreshWhenDayUnchanged(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("expected tick to return a command")
 	}
-	msgs, _ := execBatchCmds(cmd)
+	msgs := execBatchCmds(cmd)
 	if len(msgs) != 1 {
 		t.Fatalf("expected tick to only schedule one next tick, got %d msgs", len(msgs))
 	}
@@ -66,7 +41,7 @@ func TestModel_Tick_ReschedulesAndDoesNotRefreshWhenDayUnchanged(t *testing.T) {
 }
 
 func TestModel_Tick_RefreshesActiveListsWhenDayChanged(t *testing.T) {
-	setImmediateTick(t)
+	disableTick(t)
 
 	current := domain.MustParseDay("2026-03-04")
 	a := newFakeApp(current, nil)
@@ -95,7 +70,7 @@ func TestModel_Tick_RefreshesActiveListsWhenDayChanged(t *testing.T) {
 		t.Fatalf("expected tick to batch refresh+reschedule on day change, got batch len=%d", len(bm))
 	}
 	// Apply refresh; ignore rescheduled tick cmd.
-	msgs, _ := execBatchCmds(cmd)
+	msgs := execBatchCmds(cmd)
 	var gotRefresh bool
 	var gotTick bool
 	for _, msg := range msgs {
@@ -118,7 +93,7 @@ func TestModel_Tick_RefreshesActiveListsWhenDayChanged(t *testing.T) {
 }
 
 func TestModel_Tick_InHistoryViewUpdatesWindowToEndAtNewDay(t *testing.T) {
-	setImmediateTick(t)
+	disableTick(t)
 
 	current := domain.MustParseDay("2026-03-04")
 	a := newFakeApp(current, nil)
@@ -142,7 +117,7 @@ func TestModel_Tick_InHistoryViewUpdatesWindowToEndAtNewDay(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("expected cmd")
 	}
-	msgs, _ := execBatchCmds(cmd)
+	msgs := execBatchCmds(cmd)
 	var gotRefresh bool
 	var gotTick bool
 	for _, msg := range msgs {
@@ -167,7 +142,7 @@ func TestModel_Tick_InHistoryViewUpdatesWindowToEndAtNewDay(t *testing.T) {
 }
 
 func TestModel_Tick_UpdatesDelayedHighlightingAfterRollover(t *testing.T) {
-	setImmediateTick(t)
+	disableTick(t)
 
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
@@ -199,7 +174,7 @@ func TestModel_Tick_UpdatesDelayedHighlightingAfterRollover(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("expected cmd")
 	}
-	msgs, _ := execBatchCmds(cmd)
+	msgs := execBatchCmds(cmd)
 	for _, msg := range msgs {
 		if r, ok := msg.(refreshMsg); ok {
 			um, _ = m.Update(r)

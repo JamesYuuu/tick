@@ -10,8 +10,10 @@ type keyMap struct {
 	Postpone key.Binding
 	Quit     key.Binding
 
-	HistoryUp   key.Binding
-	HistoryDown key.Binding
+	HistoryUp    key.Binding
+	HistoryDown  key.Binding
+	HistoryLeft  key.Binding
+	HistoryRight key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -42,11 +44,19 @@ func defaultKeyMap() keyMap {
 		),
 		HistoryUp: key.NewBinding(
 			key.WithKeys("up", "k"),
-			key.WithHelp("up/k", "prev day"),
+			key.WithHelp("up/k", "scroll up"),
 		),
 		HistoryDown: key.NewBinding(
 			key.WithKeys("down", "j"),
-			key.WithHelp("down/j", "next day"),
+			key.WithHelp("down/j", "scroll down"),
+		),
+		HistoryLeft: key.NewBinding(
+			key.WithKeys("left", "h"),
+			key.WithHelp("left/h", "prev day"),
+		),
+		HistoryRight: key.NewBinding(
+			key.WithKeys("right", "l"),
+			key.WithHelp("right/l", "next day"),
 		),
 	}
 }

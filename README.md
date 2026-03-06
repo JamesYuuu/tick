@@ -30,4 +30,5 @@ Today:
 
 History:
 
-- `j/k` or `Down/Up` move day
+- `h/l` or `Left/Right` move day
+- `j/k` or `Down/Up` scroll tasks

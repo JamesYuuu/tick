@@ -1,10 +1,10 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/JamesYuuu/tick/internal/domain"
-	"github.com/charmbracelet/lipgloss"
 )
 
 func renderToday(m Model) string {
@@ -60,25 +60,114 @@ func renderHistory(m Model) string {
 }
 
 func renderHistoryBody(m Model) string {
-	// Left column: 7-day list as MM-DD.
-	days := make([]string, 0, 7)
-	for i := 0; i < 7; i++ {
-		day := addDays(m.historyFrom, i)
-		prefix := "  "
-		if i == m.historyIndex {
-			prefix = "> "
-		}
-		days = append(days, prefix+fmtMMDD(day))
+	innerW := sheetInnerWidth(m.width)
+	if innerW <= 0 {
+		return ""
 	}
-	left := strings.Join(days, "\n")
 
-	// Right column: outcomes for selected day.
+	dateBlock := renderHistoryDateTable(m, innerW)
+	// Divider aligns to the sheet frame.
+	divider := ""
+	if innerW > 1 {
+		divider = strings.Repeat("-", innerW-2)
+	}
+
+	workspaceH := m.height - (1 + 1 + 1 + 2)
+	if workspaceH < 0 {
+		workspaceH = 0
+	}
+	innerH := workspaceH - sheetVertMargin
+	if innerH < 0 {
+		innerH = 0
+	}
+	// Date selector is N lines (table or 1-line fallback), then a blank line,
+	// then a full-width divider.
+	selectorH := linesCount(dateBlock)
+	sepH := 2
+	detailH := innerH - (selectorH + sepH)
+	if detailH < 0 {
+		detailH = 0
+	}
+
+	details := renderHistoryDetailsViewport(m, detailH)
+
+	parts := []string{dateBlock, " ", divider}
+	if detailH > 0 {
+		parts = append(parts, details)
+	}
+	return strings.Join(parts, "\n")
+}
+
+func renderHistoryDateTable(m Model, innerW int) string {
+	cellW := 7                // " 03-01 "
+	tableW := 1 + 7*(cellW+1) // leading '+' + 7*(cell + '+')
+	if tableW > innerW {
+		// Fallback: 1-line date strip.
+		parts := make([]string, 0, 7)
+		for i := 0; i < 7; i++ {
+			d := addDays(m.historyFrom, i)
+			v := fmtMMDD(d)
+			if i == m.historyIndex {
+				v = m.styles.Reverse.Render(v)
+			}
+			parts = append(parts, v)
+		}
+		return centerLinesInWidth(strings.Join(parts, " "), innerW)
+	}
+
+	border := "+" + strings.Repeat("-", cellW)
+	border = strings.Repeat(border, 7) + "+"
+
+	row := make([]string, 0, 1+7)
+	row = append(row, "|")
+	for i := 0; i < 7; i++ {
+		d := addDays(m.historyFrom, i)
+		content := fmt.Sprintf(" %s ", fmtMMDD(d))
+		if i == m.historyIndex {
+			content = m.styles.Reverse.Render(content)
+		}
+		// Ensure fixed cell width (ANSI-aware width isn't needed since content is ASCII + SGR).
+		if len(content) < cellW {
+			content = content + strings.Repeat(" ", cellW-len(content))
+		}
+		row = append(row, content+"|")
+	}
+	line := strings.Join(row, "")
+
+	block := strings.Join([]string{border, line, border}, "\n")
+	return centerLinesInWidth(block, innerW)
+}
+
+func renderHistoryDetailsViewport(m Model, h int) string {
+	rows := historyDetailRows(m)
+	if h <= 0 {
+		return ""
+	}
+	if len(rows) == 0 {
+		rows = []string{"None"}
+	}
+	start := m.historyScroll
+	if start < 0 {
+		start = 0
+	}
+	if start > len(rows) {
+		start = len(rows)
+	}
+	end := start + h
+	if end > len(rows) {
+		end = len(rows)
+	}
+	slice := rows[start:end]
+	for len(slice) < h {
+		slice = append(slice, " ")
+	}
+	return strings.Join(slice, "\n")
+}
+
+func historyDetailRows(m Model) []string {
 	rows := make([]string, 0, len(m.historyDone)+len(m.historyAbandoned)+len(m.historyActiveCreated)+1)
-
 	for _, t := range m.historyDone {
 		line := "[✓] " + t.Title
-		// Delay for done tasks is determined by the actual completion day.
-		// If DoneDay is missing, be conservative and do not mark delayed.
 		if t.DoneDay != nil && t.DueDay.Before(*t.DoneDay) {
 			line = m.styles.Delayed.Render(line)
 		}
@@ -86,13 +175,11 @@ func renderHistoryBody(m Model) string {
 	}
 	for _, t := range m.historyAbandoned {
 		line := "[✗] " + t.Title
-		// Delay for abandoned tasks is determined by the actual abandonment day.
 		if t.AbandonedDay != nil && t.DueDay.Before(*t.AbandonedDay) {
 			line = m.styles.Delayed.Render(line)
 		}
 		rows = append(rows, line)
 	}
-
 	// Overdue active tasks created on selected day.
 	today := m.currentDay()
 	for _, t := range m.historyActiveCreated {
@@ -102,25 +189,9 @@ func renderHistoryBody(m Model) string {
 		if !t.DueDay.Before(today) {
 			continue
 		}
-		line := m.styles.Delayed.Render("[ ] " + t.Title)
-		rows = append(rows, line)
+		rows = append(rows, m.styles.Delayed.Render("[ ] "+t.Title))
 	}
-	if len(rows) == 0 {
-		rows = append(rows, "None")
-	}
-	right := strings.Join(rows, "\n")
-
-	// Divider: ASCII '|' sized to max lines.
-	divider := verticalDivider(max(linesCount(left), linesCount(right)))
-
-	cols := lipgloss.JoinHorizontal(lipgloss.Top,
-		lipgloss.NewStyle().Width(7).Render(left),
-		" ",
-		divider,
-		" ",
-		right,
-	)
-	return cols
+	return rows
 }
 
 func fmtMMDD(d domain.Day) string {
@@ -140,15 +211,4 @@ func max(a, b int) int {
 		return a
 	}
 	return b
-}
-
-func verticalDivider(h int) string {
-	if h <= 0 {
-		return ""
-	}
-	lines := make([]string, 0, h)
-	for i := 0; i < h; i++ {
-		lines = append(lines, "|")
-	}
-	return strings.Join(lines, "\n")
 }

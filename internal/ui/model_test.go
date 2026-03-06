@@ -18,6 +18,88 @@ import (
 	"github.com/muesli/termenv"
 )
 
+func TestRenderTodayBody_EmptyCenteredInWorkspace(t *testing.T) {
+	disableTick(t)
+
+	m := NewWithDeps(newFakeApp(domain.MustParseDay("2026-03-04"), nil), fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	um, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = um.(Model)
+
+	body := renderTodayBody(m)
+
+	innerW := sheetInnerWidth(m.width)
+	workspaceH := m.height - (1 + 1 + 1 + 2)
+	innerH := workspaceH - sheetVertMargin
+	if innerH < 0 {
+		innerH = 0
+	}
+
+	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
+	if len(lines) != innerH {
+		t.Fatalf("expected body to have %d lines, got %d", innerH, len(lines))
+	}
+
+	msg := "Nothing due today."
+	topPad := (innerH - 1) / 2
+	if topPad < 0 {
+		topPad = 0
+	}
+	if !strings.Contains(lines[topPad], msg) {
+		t.Fatalf("expected message on centered line %d, got %q", topPad, lines[topPad])
+	}
+	leftPad := (innerW - ansi.StringWidth(msg)) / 2
+	if leftPad < 0 {
+		leftPad = 0
+	}
+	if got := len(lines[topPad]) - len(strings.TrimLeft(lines[topPad], " ")); got != leftPad {
+		t.Fatalf("expected left padding %d, got %d (line=%q)", leftPad, got, lines[topPad])
+	}
+	if strings.TrimLeft(lines[topPad], " ") != msg {
+		t.Fatalf("expected trimmed line to equal msg, got %q", strings.TrimLeft(lines[topPad], " "))
+	}
+}
+
+func TestRenderUpcomingBody_EmptyCenteredInWorkspace(t *testing.T) {
+	disableTick(t)
+
+	m := NewWithDeps(newFakeApp(domain.MustParseDay("2026-03-04"), nil), fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	um, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = um.(Model)
+
+	body := renderUpcomingBody(m)
+
+	innerW := sheetInnerWidth(m.width)
+	workspaceH := m.height - (1 + 1 + 1 + 2)
+	innerH := workspaceH - sheetVertMargin
+	if innerH < 0 {
+		innerH = 0
+	}
+
+	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
+	if len(lines) != innerH {
+		t.Fatalf("expected body to have %d lines, got %d", innerH, len(lines))
+	}
+
+	msg := "No upcoming tasks."
+	topPad := (innerH - 1) / 2
+	if topPad < 0 {
+		topPad = 0
+	}
+	if !strings.Contains(lines[topPad], msg) {
+		t.Fatalf("expected message on centered line %d, got %q", topPad, lines[topPad])
+	}
+	leftPad := (innerW - ansi.StringWidth(msg)) / 2
+	if leftPad < 0 {
+		leftPad = 0
+	}
+	if got := len(lines[topPad]) - len(strings.TrimLeft(lines[topPad], " ")); got != leftPad {
+		t.Fatalf("expected left padding %d, got %d (line=%q)", leftPad, got, lines[topPad])
+	}
+	if strings.TrimLeft(lines[topPad], " ") != msg {
+		t.Fatalf("expected trimmed line to equal msg, got %q", strings.TrimLeft(lines[topPad], " "))
+	}
+}
+
 func listLen(m list.Model) int { return len(m.Items()) }
 
 type fakeClock struct{ now time.Time }

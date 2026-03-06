@@ -33,6 +33,77 @@ func TestSeparatorLine_LeavesOneColumnToAvoidWrap(t *testing.T) {
 	}
 }
 
+func TestLayoutMetrics_Consistency(t *testing.T) {
+	g := calcLayoutMetrics(80, 24)
+	if g.contentW != contentWidth(80) {
+		t.Fatalf("content width mismatch: got %d want %d", g.contentW, contentWidth(80))
+	}
+	if g.innerW != sheetInnerWidth(80) {
+		t.Fatalf("inner width mismatch: got %d want %d", g.innerW, sheetInnerWidth(80))
+	}
+	if g.workspaceH != 19 { // 24 - (header1 + sep1 + sep1 + footer2)
+		t.Fatalf("workspace height mismatch: got %d want 19", g.workspaceH)
+	}
+}
+
+func TestLayoutMetrics_ClampAtSmallWindowSizes(t *testing.T) {
+	g := calcLayoutMetrics(0, 0)
+	if g.contentW != 0 {
+		t.Fatalf("expected content width clamp at 0, got %d", g.contentW)
+	}
+	if g.innerW != 0 {
+		t.Fatalf("expected inner width clamp at 0, got %d", g.innerW)
+	}
+	if g.workspaceH != 0 {
+		t.Fatalf("expected workspace height clamp at 0, got %d", g.workspaceH)
+	}
+	if g.innerH != 0 {
+		t.Fatalf("expected inner height clamp at 0, got %d", g.innerH)
+	}
+
+	g = calcLayoutMetrics(3, 4)
+	if g.innerW != 0 {
+		t.Fatalf("expected inner width clamp at 0 for narrow width, got %d", g.innerW)
+	}
+	if g.workspaceH != 0 || g.innerH != 0 {
+		t.Fatalf("expected height clamps at 0 for short window, got workspace=%d inner=%d", g.workspaceH, g.innerH)
+	}
+}
+
+func TestModel_View_UsesSameSizingAsWindowSizeUpdate(t *testing.T) {
+	day := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(day, nil)
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	const w = 80
+	const h = 24
+	um, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+	m = um.(Model)
+
+	g := calcLayoutMetrics(w, h)
+	if m.todayList.Width() != g.innerW || m.todayList.Height() != g.innerH {
+		t.Fatalf("expected today list size from Update to be %dx%d, got %dx%d", g.innerW, g.innerH, m.todayList.Width(), m.todayList.Height())
+	}
+	if m.upcomingList.Width() != g.innerW || m.upcomingList.Height() != g.innerH {
+		t.Fatalf("expected upcoming list size from Update to be %dx%d, got %dx%d", g.innerW, g.innerH, m.upcomingList.Width(), m.upcomingList.Height())
+	}
+	if m.addInput.Width != g.innerW {
+		t.Fatalf("expected add input width from Update to be %d, got %d", g.innerW, m.addInput.Width)
+	}
+
+	_ = m.View()
+
+	if m.todayList.Width() != g.innerW || m.todayList.Height() != g.innerH {
+		t.Fatalf("expected today list size from View to match Update path (%dx%d), got %dx%d", g.innerW, g.innerH, m.todayList.Width(), m.todayList.Height())
+	}
+	if m.upcomingList.Width() != g.innerW || m.upcomingList.Height() != g.innerH {
+		t.Fatalf("expected upcoming list size from View to match Update path (%dx%d), got %dx%d", g.innerW, g.innerH, m.upcomingList.Width(), m.upcomingList.Height())
+	}
+	if m.addInput.Width != g.innerW {
+		t.Fatalf("expected add input width from View to match Update path (%d), got %d", g.innerW, m.addInput.Width)
+	}
+}
+
 func TestRenderTodayBody_EmptyCenteredInWorkspace(t *testing.T) {
 	disableTick(t)
 

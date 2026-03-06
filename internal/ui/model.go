@@ -243,19 +243,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		// Fullscreen layout has a fixed 2-line footer (status + help).
-		workspaceHeight := msg.Height - (1 + 1 + 1 + 2)
-		if workspaceHeight < 0 {
-			workspaceHeight = 0
-		}
-		innerHeight := workspaceHeight - sheetVertMargin
-		if innerHeight < 0 {
-			innerHeight = 0
-		}
-		workspaceWidth := sheetInnerWidth(msg.Width)
-		m.todayList.SetSize(workspaceWidth, innerHeight)
-		m.upcomingList.SetSize(workspaceWidth, innerHeight)
-		m.addInput.Width = workspaceWidth
+		g := calcLayoutMetrics(msg.Width, msg.Height)
+		m.todayList.SetSize(g.innerW, g.innerH)
+		m.upcomingList.SetSize(g.innerW, g.innerH)
+		m.addInput.Width = g.innerW
 		return m, nil
 	case refreshMsg:
 		if msg.err != nil {
@@ -521,24 +512,16 @@ func (m Model) View() string {
 	help = forceHeight(help, 1)
 
 	// Fullscreen layout has a fixed 2-line footer (status + help).
-	workspaceHeight := m.height - (1 + 1 + 1 + 2)
-	if workspaceHeight < 0 {
-		workspaceHeight = 0
-	}
-	innerHeight := workspaceHeight - sheetVertMargin
-	if innerHeight < 0 {
-		innerHeight = 0
-	}
-	workspaceWidth := sheetInnerWidth(m.width)
-	if workspaceWidth > 0 {
-		m.todayList.SetSize(workspaceWidth, innerHeight)
-		m.upcomingList.SetSize(workspaceWidth, innerHeight)
+	g := calcLayoutMetrics(m.width, m.height)
+	if g.innerW > 0 {
+		m.todayList.SetSize(g.innerW, g.innerH)
+		m.upcomingList.SetSize(g.innerW, g.innerH)
 		// Prefer sizing in WindowSizeMsg, but keep addInput stable if View runs first.
-		m.addInput.Width = workspaceWidth
+		m.addInput.Width = g.innerW
 	}
-	frameBody := forceHeight(body, innerHeight)
-	workspace := m.sheetFrame(frameBody)
-	workspace = forceHeight(workspace, workspaceHeight)
+	frameBody := forceHeight(body, g.innerH)
+	workspace := m.sheetFrame(frameBody, g.contentW)
+	workspace = forceHeight(workspace, g.workspaceH)
 
 	var b strings.Builder
 	b.WriteString(header)
@@ -556,16 +539,16 @@ func (m Model) View() string {
 
 	out := b.String()
 	out = forceHeight(out, m.height)
-	out = clipLinesToWidth(out, contentWidth(m.width))
+	out = clipLinesToWidth(out, g.contentW)
 	out = padLeftToWidth(out, m.width)
 	return out
 }
 
-func (m Model) sheetFrame(body string) string {
+func (m Model) sheetFrame(body string, contentW int) string {
 	sheet := m.styles.Sheet
-	if cw := contentWidth(m.width); cw > 0 {
+	if contentW > 0 {
 		// Clamp to content width by accounting for the sheet's own frame size.
-		w := cw - sheet.GetHorizontalFrameSize()
+		w := contentW - sheet.GetHorizontalFrameSize()
 		if w < 0 {
 			w = 0
 		}

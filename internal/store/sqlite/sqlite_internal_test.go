@@ -83,3 +83,13 @@ func TestSetStatusDay_InvalidClearColumnReturnsExplicitError(t *testing.T) {
 		t.Fatalf("expected ErrInvalidStatusDayColumn, got %v", err)
 	}
 }
+
+func TestSQLiteStore_DSNForPath_EscapesSpaces(t *testing.T) {
+	path := "/tmp/dir with spaces/todo.db"
+
+	got := dsnForPath(path)
+	want := "file:/tmp/dir%20with%20spaces/todo.db"
+	if got != want {
+		t.Fatalf("dsnForPath(%q) = %q, want %q", path, got, want)
+	}
+}

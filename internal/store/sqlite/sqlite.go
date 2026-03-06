@@ -120,46 +120,48 @@ func (s *SQLiteStore) ListActiveByCreatedDay(ctx context.Context, day domain.Day
 }
 
 func (s *SQLiteStore) MarkDone(ctx context.Context, id int64, doneDay domain.Day) error {
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE tasks
-		 SET status = ?, done_day = ?, abandoned_day = NULL
-		 WHERE id = ?`,
-		string(domain.StatusDone), doneDay.String(), id,
-	)
-	if err != nil {
-		return fmt.Errorf("mark done: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("mark done: %w", err)
-	}
-	if n == 0 {
-		return fmt.Errorf("mark done: id=%d: %w", id, sql.ErrNoRows)
-	}
-	return nil
+	return s.setStatusDay(ctx, "mark done", id, domain.StatusDone, "done_day", doneDay, "abandoned_day")
 }
 
 func (s *SQLiteStore) MarkAbandoned(ctx context.Context, id int64, abandonedDay domain.Day) error {
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE tasks
-		 SET status = ?, abandoned_day = ?, done_day = NULL
-		 WHERE id = ?`,
-		string(domain.StatusAbandoned), abandonedDay.String(), id,
-	)
+	return s.setStatusDay(ctx, "mark abandoned", id, domain.StatusAbandoned, "abandoned_day", abandonedDay, "done_day")
+}
+
+func (s *SQLiteStore) setStatusDay(ctx context.Context, op string, id int64, status domain.Status, dayColumn string, day domain.Day, clearColumn string) error {
+	if err := validateStatusDayColumn(dayColumn); err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	if err := validateStatusDayColumn(clearColumn); err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	q := fmt.Sprintf(`UPDATE tasks SET status = ?, %s = ?, %s = NULL WHERE id = ?`, dayColumn, clearColumn)
+	res, err := s.db.ExecContext(ctx, q, string(status), day.String(), id)
 	if err != nil {
-		return fmt.Errorf("mark abandoned: %w", err)
+		return fmt.Errorf("%s: %w", op, err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("mark abandoned: %w", err)
+		return fmt.Errorf("%s: %w", op, err)
 	}
 	if n == 0 {
-		return fmt.Errorf("mark abandoned: id=%d: %w", id, sql.ErrNoRows)
+		return fmt.Errorf("%s: id=%d: %w", op, id, sql.ErrNoRows)
 	}
 	return nil
 }
 
 var ErrInvalidTransition = errors.New("invalid task status transition")
+
+var ErrInvalidStatusDayColumn = errors.New("invalid status day column")
+
+func validateStatusDayColumn(column string) error {
+	switch column {
+	case "done_day", "abandoned_day":
+		return nil
+	default:
+		return fmt.Errorf("%w: %s", ErrInvalidStatusDayColumn, column)
+	}
+}
 
 func (s *SQLiteStore) Postpone(ctx context.Context, id int64, newDueDay domain.Day) error {
 	// Only allow postpone for active tasks.

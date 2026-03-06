@@ -2,8 +2,12 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/JamesYuuu/tick/internal/domain"
 )
 
 func TestQueryTasks_EmptyResult(t *testing.T) {
@@ -38,5 +42,44 @@ func TestQueryTasks_PrefixesQueryErrorWithOp(t *testing.T) {
 	}
 	if !strings.HasPrefix(err.Error(), "test query: ") {
 		t.Fatalf("expected error to be prefixed with op, got %q", err.Error())
+	}
+}
+
+func TestSetStatusDay_NotFoundWrapsNoRows(t *testing.T) {
+	s, err := OpenInMemory()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	err = s.setStatusDay(context.Background(), "mark done", 999, domain.StatusDone, "done_day", domain.MustParseDay("2026-03-05"), "abandoned_day")
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected sql.ErrNoRows, got %v", err)
+	}
+}
+
+func TestSetStatusDay_InvalidDayColumnReturnsExplicitError(t *testing.T) {
+	s, err := OpenInMemory()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	err = s.setStatusDay(context.Background(), "mark done", 1, domain.StatusDone, "created_day", domain.MustParseDay("2026-03-05"), "abandoned_day")
+	if !errors.Is(err, ErrInvalidStatusDayColumn) {
+		t.Fatalf("expected ErrInvalidStatusDayColumn, got %v", err)
+	}
+}
+
+func TestSetStatusDay_InvalidClearColumnReturnsExplicitError(t *testing.T) {
+	s, err := OpenInMemory()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	err = s.setStatusDay(context.Background(), "mark done", 1, domain.StatusDone, "done_day", domain.MustParseDay("2026-03-05"), "created_day")
+	if !errors.Is(err, ErrInvalidStatusDayColumn) {
+		t.Fatalf("expected ErrInvalidStatusDayColumn, got %v", err)
 	}
 }

@@ -1,7 +1,8 @@
 package app
 
+import "github.com/JamesYuuu/tick/internal/store"
+
 // OutcomeRatios is an app-layer DTO for stats used by the UI.
-// It intentionally mirrors the store-layer struct fields to avoid leaking store types into UI.
 type OutcomeRatios struct {
 	TotalDone             int
 	DelayedDone           int
@@ -9,4 +10,15 @@ type OutcomeRatios struct {
 	DelayedAbandoned      int
 	DoneDelayedRatio      float64
 	AbandonedDelayedRatio float64
+}
+
+func mapOutcomeRatios(in store.OutcomeRatios) OutcomeRatios {
+	return OutcomeRatios{
+		TotalDone:             in.TotalDone,
+		DelayedDone:           in.DelayedDone,
+		TotalAbandoned:        in.TotalAbandoned,
+		DelayedAbandoned:      in.DelayedAbandoned,
+		DoneDelayedRatio:      in.DoneDelayedRatio,
+		AbandonedDelayedRatio: in.AbandonedDelayedRatio,
+	}
 }

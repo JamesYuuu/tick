@@ -3,9 +3,7 @@ package ui
 import "github.com/charmbracelet/bubbles/key"
 
 type keyMap struct {
-	Today    key.Binding
-	Upcoming key.Binding
-	History  key.Binding
+	NextView key.Binding
 	Add      key.Binding
 	Done     key.Binding
 	Abandon  key.Binding
@@ -20,17 +18,9 @@ type keyMap struct {
 
 func defaultKeyMap() keyMap {
 	return keyMap{
-		Today: key.NewBinding(
-			key.WithKeys("1"),
-			key.WithHelp("1", "today"),
-		),
-		Upcoming: key.NewBinding(
-			key.WithKeys("2"),
-			key.WithHelp("2", "upcoming"),
-		),
-		History: key.NewBinding(
-			key.WithKeys("3"),
-			key.WithHelp("3", "history"),
+		NextView: key.NewBinding(
+			key.WithKeys("tab"),
+			key.WithHelp("tab", "next view"),
 		),
 		Add: key.NewBinding(
 			key.WithKeys("a"),
@@ -54,19 +44,19 @@ func defaultKeyMap() keyMap {
 		),
 		HistoryUp: key.NewBinding(
 			key.WithKeys("up", "k"),
-			key.WithHelp("up/k", "prev day"),
+			key.WithHelp("up/k", "scroll up"),
 		),
 		HistoryDown: key.NewBinding(
 			key.WithKeys("down", "j"),
-			key.WithHelp("down/j", "next day"),
+			key.WithHelp("down/j", "scroll down"),
 		),
 		HistoryLeft: key.NewBinding(
 			key.WithKeys("left", "h"),
-			key.WithHelp("left/h", "-1 day window"),
+			key.WithHelp("left/h", "prev day"),
 		),
 		HistoryRight: key.NewBinding(
 			key.WithKeys("right", "l"),
-			key.WithHelp("right/l", "+1 day window"),
+			key.WithHelp("right/l", "next day"),
 		),
 	}
 }

@@ -291,6 +291,27 @@ func TestModel_History_RefreshPassesThroughHistoryDoneError(t *testing.T) {
 	}
 }
 
+func TestModel_HistoryRefresh_StatsOnlyWhenRequested(t *testing.T) {
+	disableTick(t)
+	day := domain.MustParseDay("2026-03-07")
+	a := newFakeApp(day, nil)
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	m.view = viewHistory
+	m.historyFrom = domain.MustParseDay("2026-03-01")
+	m.historyTo = day
+	m.historyIndex = 6
+
+	m = applyCmd(m, m.cmdRefreshHistory(false))
+	if a.statsCalls != 0 {
+		t.Fatalf("expected stats not called")
+	}
+
+	m = applyCmd(m, m.cmdRefreshHistory(true))
+	if a.statsCalls != 1 {
+		t.Fatalf("expected stats called once")
+	}
+}
+
 func TestModel_History_HNoLongerShiftsWindow(t *testing.T) {
 	disableTick(t)
 

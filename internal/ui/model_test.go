@@ -18,6 +18,21 @@ import (
 	"github.com/muesli/termenv"
 )
 
+func TestSeparatorLine_LeavesOneColumnToAvoidWrap(t *testing.T) {
+	w := 80
+	cw := contentWidth(w)
+
+	got := separatorLine(w)
+	if got == "" {
+		t.Fatalf("expected non-empty separatorLine(%d)", w)
+	}
+	// Global separators: keep left aligned, right -2 cells.
+	want := strings.Repeat("-", cw-2)
+	if got != want {
+		t.Fatalf("expected separatorLine(%d)=%q, got %q", w, want, got)
+	}
+}
+
 func TestRenderTodayBody_EmptyCenteredInWorkspace(t *testing.T) {
 	disableTick(t)
 
@@ -651,16 +666,19 @@ func TestModel_View_RendersThreeZonesAndFooterHelp(t *testing.T) {
 		t.Fatalf("expected first line to contain [tick], got %q", lines[0])
 	}
 
+	// Separators are inset by two spaces on both left and right.
+	sep := separatorLine(w)
+	if sep == "" {
+		t.Fatalf("expected non-empty separatorLine for width %d", w)
+	}
 	sepCount := 0
 	for _, ln := range lines {
-		trimmed := strings.TrimLeft(ln, " ")
-		trimmed = strings.Trim(trimmed, " ")
-		if len(trimmed) == w && strings.Trim(trimmed, "-") == "" {
+		if ln == sep {
 			sepCount++
 		}
 	}
 	if sepCount != 2 {
-		t.Fatalf("expected exactly 2 separator lines of %d dashes, got %d", w, sepCount)
+		t.Fatalf("expected exactly 2 separator lines equal to separatorLine(%d), got %d", w, sepCount)
 	}
 
 	if !strings.Contains(lines[len(lines)-1], "q:Quit") {
@@ -694,7 +712,7 @@ func TestModel_View_UsesFixedZoneLinePositions_80x24(t *testing.T) {
 		t.Fatalf("expected header at line 1 to contain [tick], got %q", lines[0])
 	}
 
-	sep := strings.Repeat("-", w)
+	sep := separatorLine(w)
 	if lines[1] != sep {
 		t.Fatalf("expected separator at line 2, got %q", lines[1])
 	}
@@ -793,7 +811,7 @@ func TestModel_View_Footer_EmptyStatusMsg_StillRendersTwoLineFooter(t *testing.T
 
 	statusLine := lines[len(lines)-2]
 	helpLine := lines[len(lines)-1]
-	sep := strings.Repeat("-", w)
+	sep := separatorLine(w)
 	if lines[len(lines)-3] != sep {
 		t.Fatalf("expected separator directly above footer, got %q", lines[len(lines)-3])
 	}
@@ -845,7 +863,7 @@ func TestModel_View_Footer_HistoryView_RatiosOnStatusLine_StillTwoLineFooter(t *
 
 	statusLine := lines[len(lines)-2]
 	helpLine := lines[len(lines)-1]
-	sep := strings.Repeat("-", w)
+	sep := separatorLine(w)
 	if lines[len(lines)-3] != sep {
 		t.Fatalf("expected separator directly above footer, got %q", lines[len(lines)-3])
 	}

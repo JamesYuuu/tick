@@ -44,6 +44,7 @@ type Model struct {
 	historyFrom          domain.Day
 	historyTo            domain.Day
 	historyIndex         int
+	historyScroll        int
 	historyDone          []domain.Task
 	historyAbandoned     []domain.Task
 	historyActiveCreated []domain.Task
@@ -274,6 +275,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.statusMsg = ""
+		m.historyScroll = 0
 		m.historyDone = msg.done
 		m.historyAbandoned = msg.abandoned
 		m.historyActiveCreated = msg.activeCreated
@@ -335,6 +337,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.historyTo = m.currentDay()
 				m.historyFrom = addDays(m.historyTo, -6)
 				m.historyIndex = 6
+				m.historyScroll = 0
 				return m, m.cmdRefreshHistoryWithStats()
 			case viewHistory:
 				m.view = viewToday
@@ -373,20 +376,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.view == viewHistory {
 			switch {
 			case key.Matches(msg, m.keys.HistoryUp):
+				if m.historyScroll > 0 {
+					m.historyScroll--
+				}
+				return m, nil
+			case key.Matches(msg, m.keys.HistoryDown):
+				m.historyScroll++
+				return m, nil
+			case key.Matches(msg, m.keys.HistoryLeft):
+				m.historyScroll = 0
 				if m.historyIndex > 0 {
 					m.historyIndex--
 					return m, m.cmdRefreshHistorySelectedDay()
 				}
-				// Auto-roll the 7-day window back by one day.
 				m.historyFrom = addDays(m.historyFrom, -1)
 				m.historyTo = addDays(m.historyTo, -1)
+				m.historyIndex = 0
 				return m, m.cmdRefreshHistoryWithStats()
-			case key.Matches(msg, m.keys.HistoryDown):
+			case key.Matches(msg, m.keys.HistoryRight):
+				m.historyScroll = 0
 				if m.historyIndex < 6 {
 					m.historyIndex++
 					return m, m.cmdRefreshHistorySelectedDay()
 				}
-				// Auto-roll the 7-day window forward by one day, clamped at today.
 				today := m.currentDay()
 				if m.historyTo.Time().Equal(today.Time()) {
 					return m, nil
@@ -397,6 +409,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.historyTo = nextTo
 				m.historyFrom = addDays(m.historyTo, -6)
+				m.historyIndex = 6
 				return m, m.cmdRefreshHistoryWithStats()
 			}
 		}

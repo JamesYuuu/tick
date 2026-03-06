@@ -16,6 +16,7 @@ type styles struct {
 	Sheet    lipgloss.Style
 	RowSel   lipgloss.Style
 	RowSelDl lipgloss.Style
+	Reverse  lipgloss.Style
 	Status   lipgloss.Style
 	Delayed  lipgloss.Style
 }
@@ -47,12 +48,16 @@ func sheetInnerWidth(windowWidth int) int {
 }
 
 func separatorLine(windowWidth int) string {
-	w := contentWidth(windowWidth)
-	if w <= 0 {
+	cw := contentWidth(windowWidth)
+	if cw <= 2 {
 		return ""
 	}
-	return strings.Repeat("-", w)
+	// Global separators: keep left aligned, right -2 cells.
+	return strings.Repeat("-", cw-2)
 }
+
+// (History-specific separators are not needed; fullscreen separators always
+// align to the sheet frame, not to inner widgets.)
 
 // padLeftToWidth prefixes each line with spaces so the rendered block is
 // centered within the given window width, capped by maxContentWidth.
@@ -167,9 +172,32 @@ func defaultStyles() styles {
 		Sheet:    lipgloss.NewStyle().Padding(0, 1).Border(sheetBorder).BorderForeground(lipgloss.Color("240")),
 		RowSel:   lipgloss.NewStyle().Background(lipgloss.Color("254")).Foreground(lipgloss.Color("236")),
 		RowSelDl: lipgloss.NewStyle().Background(lipgloss.Color("254")).Foreground(lipgloss.Color("1")),
+		Reverse:  lipgloss.NewStyle().Reverse(true),
 		Status:   lipgloss.NewStyle().Foreground(lipgloss.Color("214")),
 		Delayed:  lipgloss.NewStyle().Foreground(lipgloss.Color("1")),
 	}
+}
+
+func centerLinesInWidth(block string, w int) string {
+	if w <= 0 || block == "" {
+		return block
+	}
+	lines := strings.Split(strings.TrimRight(block, "\n"), "\n")
+	maxW := 0
+	for _, ln := range lines {
+		if aw := ansi.StringWidth(ln); aw > maxW {
+			maxW = aw
+		}
+	}
+	pad := (w - maxW) / 2
+	if pad <= 0 {
+		return strings.Join(lines, "\n")
+	}
+	prefix := strings.Repeat(" ", pad)
+	for i := range lines {
+		lines[i] = prefix + lines[i]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m Model) frame(title string, body string) string {
@@ -222,7 +250,7 @@ func (m Model) help() string {
 	case viewToday:
 		suffix = "  a:Add  x:Done  d:Abandon  p:+1 day"
 	case viewHistory:
-		suffix = "  up/k:prev day  down/j:next day"
+		suffix = "  left/h:prev day  right/l:next day  up/k:scroll up  down/j:scroll down"
 	}
 	return m.styles.Help.Render(base + suffix)
 }

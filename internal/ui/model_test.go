@@ -2,14 +2,12 @@ package ui
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/JamesYuuu/tick/internal/app"
 	"github.com/JamesYuuu/tick/internal/domain"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -104,85 +102,82 @@ func TestModel_View_UsesSameSizingAsWindowSizeUpdate(t *testing.T) {
 	}
 }
 
-func TestRenderTodayBody_EmptyCenteredInWorkspace(t *testing.T) {
+func TestRenderEmptyStates_Table(t *testing.T) {
 	disableTick(t)
 
-	m := NewWithDeps(newFakeApp(domain.MustParseDay("2026-03-04"), nil), fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	um, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = um.(Model)
-
-	body := renderTodayBody(m)
-
-	innerW := sheetInnerWidth(m.width)
-	workspaceH := m.height - (1 + 1 + 1 + 2)
-	innerH := workspaceH - sheetVertMargin
-	if innerH < 0 {
-		innerH = 0
+	day := domain.MustParseDay("2026-03-04")
+	tests := []struct {
+		name    string
+		render  func(Model) string
+		wantMsg string
+	}{
+		{name: "today", render: renderTodayBody, wantMsg: "Nothing due today."},
+		{name: "upcoming", render: renderUpcomingBody, wantMsg: "No upcoming tasks."},
 	}
 
-	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
-	if len(lines) != innerH {
-		t.Fatalf("expected body to have %d lines, got %d", innerH, len(lines))
-	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m := NewWithDeps(newFakeApp(day, nil), fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+			um, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+			m = um.(Model)
 
-	msg := "Nothing due today."
-	topPad := (innerH - 1) / 2
-	if topPad < 0 {
-		topPad = 0
-	}
-	if !strings.Contains(lines[topPad], msg) {
-		t.Fatalf("expected message on centered line %d, got %q", topPad, lines[topPad])
-	}
-	leftPad := (innerW - ansi.StringWidth(msg)) / 2
-	if leftPad < 0 {
-		leftPad = 0
-	}
-	if got := len(lines[topPad]) - len(strings.TrimLeft(lines[topPad], " ")); got != leftPad {
-		t.Fatalf("expected left padding %d, got %d (line=%q)", leftPad, got, lines[topPad])
-	}
-	if strings.TrimLeft(lines[topPad], " ") != msg {
-		t.Fatalf("expected trimmed line to equal msg, got %q", strings.TrimLeft(lines[topPad], " "))
+			body := tc.render(m)
+			lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
+			workspaceH := m.height - (1 + 1 + 1 + 2)
+			if workspaceH < 0 {
+				workspaceH = 0
+			}
+			innerH := workspaceH - sheetVertMargin
+			if innerH < 0 {
+				innerH = 0
+			}
+			innerW := sheetInnerWidth(m.width)
+			if len(lines) != innerH {
+				t.Fatalf("expected body to have %d lines, got %d", innerH, len(lines))
+			}
+
+			topPad := (innerH - 1) / 2
+			if topPad < 0 {
+				topPad = 0
+			}
+			if !strings.Contains(lines[topPad], tc.wantMsg) {
+				t.Fatalf("expected %q on centered line %d, got %q", tc.wantMsg, topPad, lines[topPad])
+			}
+			leftPad := (innerW - ansi.StringWidth(tc.wantMsg)) / 2
+			if leftPad < 0 {
+				leftPad = 0
+			}
+			if got := len(lines[topPad]) - len(strings.TrimLeft(lines[topPad], " ")); got != leftPad {
+				t.Fatalf("expected left padding %d, got %d (line=%q)", leftPad, got, lines[topPad])
+			}
+		})
 	}
 }
 
-func TestRenderUpcomingBody_EmptyCenteredInWorkspace(t *testing.T) {
-	disableTick(t)
+func TestModel_View_EmptyStateCopyAcrossTabs(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 
-	m := NewWithDeps(newFakeApp(domain.MustParseDay("2026-03-04"), nil), fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	day := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(day, nil)
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
 	um, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m = um.(Model)
+	m = applyCmd(m, m.Init())
 
-	body := renderUpcomingBody(m)
-
-	innerW := sheetInnerWidth(m.width)
-	workspaceH := m.height - (1 + 1 + 1 + 2)
-	innerH := workspaceH - sheetVertMargin
-	if innerH < 0 {
-		innerH = 0
+	out := m.View()
+	if !strings.Contains(out, "Nothing due today.") {
+		t.Fatalf("expected today empty copy in Today view, got %q", out)
 	}
 
-	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
-	if len(lines) != innerH {
-		t.Fatalf("expected body to have %d lines, got %d", innerH, len(lines))
-	}
+	um, cmd := m.Update(keyTab())
+	m = um.(Model)
+	m = applyCmd(m, cmd)
 
-	msg := "No upcoming tasks."
-	topPad := (innerH - 1) / 2
-	if topPad < 0 {
-		topPad = 0
-	}
-	if !strings.Contains(lines[topPad], msg) {
-		t.Fatalf("expected message on centered line %d, got %q", topPad, lines[topPad])
-	}
-	leftPad := (innerW - ansi.StringWidth(msg)) / 2
-	if leftPad < 0 {
-		leftPad = 0
-	}
-	if got := len(lines[topPad]) - len(strings.TrimLeft(lines[topPad], " ")); got != leftPad {
-		t.Fatalf("expected left padding %d, got %d (line=%q)", leftPad, got, lines[topPad])
-	}
-	if strings.TrimLeft(lines[topPad], " ") != msg {
-		t.Fatalf("expected trimmed line to equal msg, got %q", strings.TrimLeft(lines[topPad], " "))
+	out = m.View()
+	if !strings.Contains(out, "No upcoming tasks.") {
+		t.Fatalf("expected upcoming empty copy in Upcoming view, got %q", out)
 	}
 }
 
@@ -193,251 +188,20 @@ func TestRenderCenteredEmpty_UsesLayoutInnerBox(t *testing.T) {
 
 	out := renderCenteredEmpty(m, "Nothing due today.")
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if len(lines) != calcLayoutMetrics(80, 24).innerH {
-		t.Fatalf("expected centered empty to use innerH")
+	workspaceH := m.height - (1 + 1 + 1 + 2)
+	if workspaceH < 0 {
+		workspaceH = 0
+	}
+	innerH := workspaceH - sheetVertMargin
+	if innerH < 0 {
+		innerH = 0
+	}
+	if len(lines) != innerH {
+		t.Fatalf("expected centered empty to use innerH=%d, got %d", innerH, len(lines))
 	}
 }
 
 func listLen(m list.Model) int { return len(m.Items()) }
-
-type fakeClock struct{ now time.Time }
-
-func (c fakeClock) Now() time.Time { return c.now }
-
-type fakeApp struct {
-	currentDay domain.Day
-	nextID     int64
-	tasks      []domain.Task
-
-	todayCalls    int
-	upcomingCalls int
-
-	historyDoneByDay          map[string][]domain.Task
-	historyAbandonedByDay     map[string][]domain.Task
-	historyActiveByCreatedDay map[string][]domain.Task
-	historyDoneCalls          int
-	historyAbandonedCalls     int
-	historyActiveCreatedCalls int
-	lastHistoryDay            domain.Day
-	historyErr                error
-
-	statsRatios   map[string]float64
-	statsCalls    int
-	lastStatsFrom domain.Day
-	lastStatsTo   domain.Day
-	statsErr      error
-
-	addedTitles  []string
-	doneIDs      []int64
-	abandonedIDs []int64
-	postponedIDs []int64
-
-	todayErr    error
-	upcomingErr error
-	addErr      error
-	doneErr     error
-	abandonErr  error
-	postponeErr error
-}
-
-func newFakeApp(currentDay domain.Day, tasks []domain.Task) *fakeApp {
-	maxID := int64(0)
-	for _, t := range tasks {
-		if t.ID > maxID {
-			maxID = t.ID
-		}
-	}
-	return &fakeApp{
-		currentDay:                currentDay,
-		nextID:                    maxID + 1,
-		tasks:                     tasks,
-		historyDoneByDay:          map[string][]domain.Task{},
-		historyAbandonedByDay:     map[string][]domain.Task{},
-		historyActiveByCreatedDay: map[string][]domain.Task{},
-		statsRatios:               map[string]float64{},
-	}
-}
-
-func (a *fakeApp) resetHistoryCounters() {
-	a.historyDoneCalls = 0
-	a.historyAbandonedCalls = 0
-	a.historyActiveCreatedCalls = 0
-	a.statsCalls = 0
-}
-
-func (a *fakeApp) Add(ctx context.Context, title string) (domain.Task, error) {
-	_ = ctx
-	a.addedTitles = append(a.addedTitles, title)
-	if a.addErr != nil {
-		return domain.Task{}, a.addErr
-	}
-	created := a.currentDay
-	t := domain.Task{ID: a.nextID, Title: title, Status: domain.StatusActive, CreatedDay: created, DueDay: created}
-	a.nextID++
-	a.tasks = append(a.tasks, t)
-	return t, nil
-}
-
-func (a *fakeApp) Today(ctx context.Context) ([]domain.Task, error) {
-	_ = ctx
-	a.todayCalls++
-	if a.todayErr != nil {
-		return nil, a.todayErr
-	}
-	out := make([]domain.Task, 0)
-	for _, t := range a.tasks {
-		if t.Status != domain.StatusActive {
-			continue
-		}
-		if !a.currentDay.Before(t.DueDay) {
-			out = append(out, t)
-		}
-	}
-	return out, nil
-}
-
-func (a *fakeApp) Upcoming(ctx context.Context) ([]domain.Task, error) {
-	_ = ctx
-	a.upcomingCalls++
-	if a.upcomingErr != nil {
-		return nil, a.upcomingErr
-	}
-	out := make([]domain.Task, 0)
-	for _, t := range a.tasks {
-		if t.Status != domain.StatusActive {
-			continue
-		}
-		if a.currentDay.Before(t.DueDay) {
-			out = append(out, t)
-		}
-	}
-	return out, nil
-}
-
-func applyCmd(m Model, cmd tea.Cmd) Model {
-	if cmd == nil {
-		return m
-	}
-	msg := cmd()
-	if msg == nil {
-		return m
-	}
-	if bm, ok := msg.(tea.BatchMsg); ok {
-		for _, subCmd := range bm {
-			if subCmd == nil {
-				continue
-			}
-			subMsg := subCmd()
-			if subMsg == nil {
-				continue
-			}
-			um, _ := m.Update(subMsg)
-			m = um.(Model)
-		}
-		return m
-	}
-	um, _ := m.Update(msg)
-	return um.(Model)
-}
-
-func (a *fakeApp) Done(ctx context.Context, id int64) error {
-	_ = ctx
-	a.doneIDs = append(a.doneIDs, id)
-	if a.doneErr != nil {
-		return a.doneErr
-	}
-	for i := range a.tasks {
-		if a.tasks[i].ID == id {
-			a.tasks[i].Status = domain.StatusDone
-		}
-	}
-	return nil
-}
-
-func (a *fakeApp) Abandon(ctx context.Context, id int64) error {
-	_ = ctx
-	a.abandonedIDs = append(a.abandonedIDs, id)
-	if a.abandonErr != nil {
-		return a.abandonErr
-	}
-	for i := range a.tasks {
-		if a.tasks[i].ID == id {
-			a.tasks[i].Status = domain.StatusAbandoned
-		}
-	}
-	return nil
-}
-
-func (a *fakeApp) PostponeOneDay(ctx context.Context, id int64) error {
-	_ = ctx
-	a.postponedIDs = append(a.postponedIDs, id)
-	if a.postponeErr != nil {
-		return a.postponeErr
-	}
-	next := domain.DayFromTime(a.currentDay.Time().AddDate(0, 0, 1))
-	for i := range a.tasks {
-		if a.tasks[i].ID == id {
-			a.tasks[i].DueDay = next
-		}
-	}
-	return nil
-}
-
-func (a *fakeApp) HistoryDoneByDay(ctx context.Context, day domain.Day) ([]domain.Task, error) {
-	_ = ctx
-	a.historyDoneCalls++
-	a.lastHistoryDay = day
-	if a.historyErr != nil {
-		return nil, a.historyErr
-	}
-	return a.historyDoneByDay[day.String()], nil
-}
-
-func (a *fakeApp) HistoryAbandonedByDay(ctx context.Context, day domain.Day) ([]domain.Task, error) {
-	_ = ctx
-	a.historyAbandonedCalls++
-	a.lastHistoryDay = day
-	if a.historyErr != nil {
-		return nil, a.historyErr
-	}
-	return a.historyAbandonedByDay[day.String()], nil
-}
-
-func (a *fakeApp) HistoryActiveByCreatedDay(ctx context.Context, day domain.Day) ([]domain.Task, error) {
-	_ = ctx
-	a.historyActiveCreatedCalls++
-	a.lastHistoryDay = day
-	if a.historyErr != nil {
-		return nil, a.historyErr
-	}
-	return a.historyActiveByCreatedDay[day.String()], nil
-}
-
-func (a *fakeApp) Stats(ctx context.Context, fromDay, toDay domain.Day) (app.OutcomeRatios, error) {
-	_ = ctx
-	a.statsCalls++
-	a.lastStatsFrom = fromDay
-	a.lastStatsTo = toDay
-	if a.statsErr != nil {
-		return app.OutcomeRatios{}, a.statsErr
-	}
-	return app.OutcomeRatios{
-		DoneDelayedRatio:      a.statsRatios["done"],
-		AbandonedDelayedRatio: a.statsRatios["abandoned"],
-	}, nil
-}
-
-func keyRune(r rune) tea.KeyMsg {
-	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
-}
-
-func keyTab() tea.KeyMsg {
-	return tea.KeyMsg{Type: tea.KeyTab}
-}
-
-func keyEnter() tea.KeyMsg {
-	return tea.KeyMsg{Type: tea.KeyEnter}
-}
 
 func TestModel_Init_LoadsTodayList(t *testing.T) {
 	orig := tickEvery
@@ -455,99 +219,73 @@ func TestModel_Init_LoadsTodayList(t *testing.T) {
 	}
 }
 
-func TestModel_Today_XMarksDoneAndRemovesFromToday(t *testing.T) {
-	orig := tickEvery
-	tickEvery = 0
-	t.Cleanup(func() { tickEvery = orig })
+func TestModel_TodayActions_Table(t *testing.T) {
+	disableTick(t)
 
 	current := domain.MustParseDay("2026-03-04")
-	a := newFakeApp(current, []domain.Task{{ID: 1, Title: "t1", Status: domain.StatusActive, CreatedDay: current, DueDay: current}})
-
-	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	m = applyCmd(m, m.Init())
-
-	um, cmd := m.Update(keyRune('x'))
-	m = um.(Model)
-	if cmd == nil {
-		t.Fatalf("expected command from done action")
+	tests := []struct {
+		name          string
+		key           tea.KeyMsg
+		id            int64
+		wantDone      []int64
+		wantAbandoned []int64
+		wantPostponed []int64
+		wantUpcoming  int
+	}{
+		{name: "done", key: keyRune('x'), id: 1, wantDone: []int64{1}},
+		{name: "abandon", key: keyRune('d'), id: 2, wantAbandoned: []int64{2}},
+		{name: "postpone", key: keyRune('p'), id: 3, wantPostponed: []int64{3}, wantUpcoming: 1},
 	}
-	msg := cmd()
-	if len(a.doneIDs) != 1 || a.doneIDs[0] != 1 {
-		t.Fatalf("expected Done called with id=1, got %#v", a.doneIDs)
-	}
 
-	um, _ = m.Update(msg)
-	m = um.(Model)
-	if listLen(m.todayList) != 0 {
-		t.Fatalf("expected task removed from today after done, got %d", listLen(m.todayList))
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := newFakeApp(current, []domain.Task{{ID: tc.id, Title: "task", Status: domain.StatusActive, CreatedDay: current, DueDay: current}})
+			m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+			m = applyCmd(m, m.Init())
+
+			um, cmd := m.Update(tc.key)
+			m = um.(Model)
+			if cmd == nil {
+				t.Fatalf("expected command from action")
+			}
+			um, _ = m.Update(cmd())
+			m = um.(Model)
+
+			if !equalInt64s(a.doneIDs, tc.wantDone) {
+				t.Fatalf("done ids mismatch: got %#v want %#v", a.doneIDs, tc.wantDone)
+			}
+			if !equalInt64s(a.abandonedIDs, tc.wantAbandoned) {
+				t.Fatalf("abandoned ids mismatch: got %#v want %#v", a.abandonedIDs, tc.wantAbandoned)
+			}
+			if !equalInt64s(a.postponedIDs, tc.wantPostponed) {
+				t.Fatalf("postponed ids mismatch: got %#v want %#v", a.postponedIDs, tc.wantPostponed)
+			}
+			if listLen(m.todayList) != 0 {
+				t.Fatalf("expected today list cleared after action, got %d", listLen(m.todayList))
+			}
+
+			if tc.wantUpcoming > 0 {
+				um, cmd = m.Update(keyTab())
+				m = um.(Model)
+				m = applyCmd(m, cmd)
+				if listLen(m.upcomingList) != tc.wantUpcoming {
+					t.Fatalf("expected upcoming list size %d, got %d", tc.wantUpcoming, listLen(m.upcomingList))
+				}
+			}
+		})
 	}
 }
 
-func TestModel_Today_DMarksAbandonedAndRemovesFromToday(t *testing.T) {
-	orig := tickEvery
-	tickEvery = 0
-	t.Cleanup(func() { tickEvery = orig })
-
-	current := domain.MustParseDay("2026-03-04")
-	a := newFakeApp(current, []domain.Task{{ID: 2, Title: "t2", Status: domain.StatusActive, CreatedDay: current, DueDay: current}})
-
-	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	m = applyCmd(m, m.Init())
-
-	um, cmd := m.Update(keyRune('d'))
-	m = um.(Model)
-	if cmd == nil {
-		t.Fatalf("expected command from abandon action")
+func equalInt64s(got, want []int64) bool {
+	if len(got) != len(want) {
+		return false
 	}
-	msg := cmd()
-	if len(a.abandonedIDs) != 1 || a.abandonedIDs[0] != 2 {
-		t.Fatalf("expected Abandon called with id=2, got %#v", a.abandonedIDs)
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
 	}
-
-	um, _ = m.Update(msg)
-	m = um.(Model)
-	if listLen(m.todayList) != 0 {
-		t.Fatalf("expected task removed from today after abandon, got %d", listLen(m.todayList))
-	}
-}
-
-func TestModel_Today_PPostponesAndMovesTaskToUpcoming(t *testing.T) {
-	orig := tickEvery
-	tickEvery = 0
-	t.Cleanup(func() { tickEvery = orig })
-
-	current := domain.MustParseDay("2026-03-04")
-	a := newFakeApp(current, []domain.Task{{ID: 3, Title: "t3", Status: domain.StatusActive, CreatedDay: current, DueDay: current}})
-
-	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	m = applyCmd(m, m.Init())
-
-	um, cmd := m.Update(keyRune('p'))
-	m = um.(Model)
-	if cmd == nil {
-		t.Fatalf("expected command from postpone action")
-	}
-	msg := cmd()
-	if len(a.postponedIDs) != 1 || a.postponedIDs[0] != 3 {
-		t.Fatalf("expected PostponeOneDay called with id=3, got %#v", a.postponedIDs)
-	}
-
-	um, _ = m.Update(msg)
-	m = um.(Model)
-	if listLen(m.todayList) != 0 {
-		t.Fatalf("expected task removed from today after postpone, got %d", listLen(m.todayList))
-	}
-
-	um, cmd = m.Update(keyTab())
-	m = um.(Model)
-	if cmd == nil {
-		t.Fatalf("expected command when switching to upcoming")
-	}
-	um, _ = m.Update(cmd())
-	m = um.(Model)
-	if listLen(m.upcomingList) != 1 {
-		t.Fatalf("expected 1 item in upcoming after postpone, got %d", listLen(m.upcomingList))
-	}
+	return true
 }
 
 func TestModel_Today_AAddTaskPromptsAndAddsToList(t *testing.T) {
@@ -748,6 +486,15 @@ func TestModel_View_RendersThreeZonesAndFooterHelp(t *testing.T) {
 	if !strings.Contains(lines[0], "[tick]") {
 		t.Fatalf("expected first line to contain [tick], got %q", lines[0])
 	}
+	if strings.Contains(lines[0], "tuitodo") {
+		t.Fatalf("expected header to not contain old app name, got %q", lines[0])
+	}
+	if !strings.Contains(lines[0], "{Today}") {
+		t.Fatalf("expected active tab marker on Today, got %q", lines[0])
+	}
+	if strings.Contains(lines[0], "{Upcoming}") || strings.Contains(lines[0], "{History}") {
+		t.Fatalf("expected only active tab to use marker, got %q", lines[0])
+	}
 
 	// Separators are inset by two spaces on both left and right.
 	sep := separatorLine(w)
@@ -845,6 +592,32 @@ func TestModel_View_NarrowWidth_DoesNotOverflowContentWidth(t *testing.T) {
 	}
 }
 
+func TestModel_View_RendersASCIISheetBorderFramePattern(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	day := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(day, nil)
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	const w = 80
+	const h = 24
+	um, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+	m = um.(Model)
+
+	out := m.View()
+
+	topOrBottomFrame := regexp.MustCompile(`(?m)^\+[-]+\+$`)
+	if !topOrBottomFrame.MatchString(out) {
+		t.Fatalf("expected View to contain ASCII sheet top/bottom frame line (+---+), got %q", out)
+	}
+
+	sideFrame := regexp.MustCompile(`(?m)^\|.*\|$`)
+	if !sideFrame.MatchString(out) {
+		t.Fatalf("expected View to contain ASCII sheet side frame lines (|...|), got %q", out)
+	}
+}
+
 func TestModel_WindowSize_SetsAddInputWidthToSheetInnerWidth(t *testing.T) {
 	day := domain.MustParseDay("2026-03-04")
 	a := newFakeApp(day, nil)
@@ -900,6 +673,44 @@ func TestModel_View_Footer_EmptyStatusMsg_StillRendersTwoLineFooter(t *testing.T
 	}
 	if strings.TrimSpace(statusLine) != "" {
 		t.Fatalf("expected blank status line when statusMsg empty, got %q", statusLine)
+	}
+	if !strings.Contains(helpLine, "q:Quit") {
+		t.Fatalf("expected help line in footer, got %q", helpLine)
+	}
+}
+
+func TestModel_View_Footer_NonEmptyStatusMsg_RendersAboveHelpLine(t *testing.T) {
+	orig := tickEvery
+	tickEvery = 0
+	t.Cleanup(func() { tickEvery = orig })
+
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	day := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(day, nil)
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	const w = 80
+	const h = 24
+	um, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+	m = um.(Model)
+	m = applyCmd(m, m.Init())
+
+	m.statusMsg = "done: boom"
+	out := m.View()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != h {
+		t.Fatalf("expected View to return exactly %d lines, got %d", h, len(lines))
+	}
+
+	statusLine := lines[len(lines)-2]
+	helpLine := lines[len(lines)-1]
+	if !strings.Contains(statusLine, "done: boom") {
+		t.Fatalf("expected non-empty status line to include statusMsg, got %q", statusLine)
+	}
+	if strings.Contains(helpLine, "done: boom") {
+		t.Fatalf("expected statusMsg to render above help line, got help=%q", helpLine)
 	}
 	if !strings.Contains(helpLine, "q:Quit") {
 		t.Fatalf("expected help line in footer, got %q", helpLine)

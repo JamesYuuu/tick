@@ -15,57 +15,6 @@ import (
 	"github.com/muesli/termenv"
 )
 
-func disableTick(t *testing.T) {
-	orig := tickEvery
-	tickEvery = 0
-	t.Cleanup(func() { tickEvery = orig })
-}
-
-func TestModel_Today_ShowsEmptyStateWhenNoTasks(t *testing.T) {
-	disableTick(t)
-
-	lipgloss.SetColorProfile(termenv.Ascii)
-	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
-
-	day := domain.MustParseDay("2026-03-04")
-	a := newFakeApp(day, nil)
-
-	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	um, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = um.(Model)
-	m = applyCmd(m, m.Init())
-
-	out := m.View()
-	if indexOf(out, "Nothing due today.") < 0 {
-		t.Fatalf("expected empty state copy for today view, got:\n%s", out)
-	}
-}
-
-func TestModel_Upcoming_ShowsEmptyStateWhenNoTasks(t *testing.T) {
-	disableTick(t)
-
-	lipgloss.SetColorProfile(termenv.Ascii)
-	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
-
-	day := domain.MustParseDay("2026-03-04")
-	a := newFakeApp(day, nil)
-
-	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	um, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m = um.(Model)
-	m = applyCmd(m, m.Init())
-
-	// Switch to Upcoming view and refresh lists.
-	um, cmd := m.Update(keyTab())
-	m = um.(Model)
-	m = applyCmd(m, cmd)
-
-	out := m.View()
-	if indexOf(out, "No upcoming tasks.") < 0 {
-		t.Fatalf("expected empty state copy for upcoming view, got:\n%s", out)
-	}
-}
-
 func TestModel_History_ShowsEmptyCopyUnderHeadingsWhenNoOutcomes(t *testing.T) {
 	disableTick(t)
 

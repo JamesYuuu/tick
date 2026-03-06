@@ -33,11 +33,15 @@ func (a *App) Add(ctx context.Context, title string) (domain.Task, error) {
 }
 
 func (a *App) Today(ctx context.Context) ([]domain.Task, error) {
-	return a.store.ListActive(ctx, store.ListActiveParams{CurrentDay: a.currentDay(), Window: store.ActiveDueLTECurrent})
+	return a.listActive(ctx, store.ActiveDueLTECurrent)
 }
 
 func (a *App) Upcoming(ctx context.Context) ([]domain.Task, error) {
-	return a.store.ListActive(ctx, store.ListActiveParams{CurrentDay: a.currentDay(), Window: store.ActiveDueGTCurrent})
+	return a.listActive(ctx, store.ActiveDueGTCurrent)
+}
+
+func (a *App) listActive(ctx context.Context, window store.ActiveWindow) ([]domain.Task, error) {
+	return a.store.ListActive(ctx, store.ListActiveParams{CurrentDay: a.currentDay(), Window: window})
 }
 
 func (a *App) Done(ctx context.Context, id int64) error {
@@ -59,36 +63,30 @@ func (a *App) Stats(ctx context.Context, fromDay, toDay domain.Day) (OutcomeRati
 	if err != nil {
 		return OutcomeRatios{}, fmt.Errorf("stats: %w", err)
 	}
-	return OutcomeRatios{
-		TotalDone:             out.TotalDone,
-		DelayedDone:           out.DelayedDone,
-		TotalAbandoned:        out.TotalAbandoned,
-		DelayedAbandoned:      out.DelayedAbandoned,
-		DoneDelayedRatio:      out.DoneDelayedRatio,
-		AbandonedDelayedRatio: out.AbandonedDelayedRatio,
-	}, nil
+	return mapOutcomeRatios(out), nil
 }
 
 func (a *App) HistoryDoneByDay(ctx context.Context, day domain.Day) ([]domain.Task, error) {
-	out, err := a.store.ListDoneByDay(ctx, day)
-	if err != nil {
-		return nil, fmt.Errorf("history done: %w", err)
-	}
-	return out, nil
+	return historyByDay(ctx, "history done", day, a.store.ListDoneByDay)
 }
 
 func (a *App) HistoryAbandonedByDay(ctx context.Context, day domain.Day) ([]domain.Task, error) {
-	out, err := a.store.ListAbandonedByDay(ctx, day)
-	if err != nil {
-		return nil, fmt.Errorf("history abandoned: %w", err)
-	}
-	return out, nil
+	return historyByDay(ctx, "history abandoned", day, a.store.ListAbandonedByDay)
 }
 
 func (a *App) HistoryActiveByCreatedDay(ctx context.Context, day domain.Day) ([]domain.Task, error) {
-	out, err := a.store.ListActiveByCreatedDay(ctx, day)
+	return historyByDay(ctx, "history active by created day", day, a.store.ListActiveByCreatedDay)
+}
+
+func historyByDay(
+	ctx context.Context,
+	prefix string,
+	day domain.Day,
+	fn func(context.Context, domain.Day) ([]domain.Task, error),
+) ([]domain.Task, error) {
+	out, err := fn(ctx, day)
 	if err != nil {
-		return nil, fmt.Errorf("history active by created day: %w", err)
+		return nil, fmt.Errorf("%s: %w", prefix, err)
 	}
 	return out, nil
 }

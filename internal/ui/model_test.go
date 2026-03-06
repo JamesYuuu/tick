@@ -181,6 +181,26 @@ func TestModel_View_EmptyStateCopyAcrossTabs(t *testing.T) {
 	}
 }
 
+func TestModel_View_Smoke_AllViews_RenderNonEmpty(t *testing.T) {
+	m := NewWithDeps(newFakeApp(domain.MustParseDay("2026-03-04"), nil), fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	um, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = um.(Model)
+
+	if strings.TrimSpace(m.View()) == "" {
+		t.Fatalf("today view empty")
+	}
+
+	m.view = viewUpcoming
+	if strings.TrimSpace(m.View()) == "" {
+		t.Fatalf("upcoming view empty")
+	}
+
+	m.view = viewHistory
+	if strings.TrimSpace(m.View()) == "" {
+		t.Fatalf("history view empty")
+	}
+}
+
 func TestRenderCenteredEmpty_UsesLayoutInnerBox(t *testing.T) {
 	m := NewWithDeps(newFakeApp(domain.MustParseDay("2026-03-04"), nil), fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
 	um, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})

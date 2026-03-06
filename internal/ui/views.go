@@ -7,11 +7,6 @@ import (
 	"github.com/JamesYuuu/tick/internal/domain"
 )
 
-func renderToday(m Model) string {
-	body := renderTodayBody(m)
-	return m.frame("Today", body)
-}
-
 func renderTodayBody(m Model) string {
 	if m.adding {
 		return "Add task\n\n" + m.addInput.View()
@@ -20,11 +15,6 @@ func renderTodayBody(m Model) string {
 		return renderCenteredEmpty(m, "Nothing due today.")
 	}
 	return m.todayList.View()
-}
-
-func renderUpcoming(m Model) string {
-	body := renderUpcomingBody(m)
-	return m.frame("Upcoming", body)
 }
 
 func renderUpcomingBody(m Model) string {
@@ -37,11 +27,6 @@ func renderUpcomingBody(m Model) string {
 func renderCenteredEmpty(m Model, msg string) string {
 	g := calcLayoutMetrics(m.width, m.height)
 	return centerInBox(msg, g.innerW, g.innerH)
-}
-
-func renderHistory(m Model) string {
-	body := renderHistoryBody(m)
-	return m.frame("History", body)
 }
 
 func renderHistoryBody(m Model) string {
@@ -191,11 +176,4 @@ func linesCount(s string) int {
 		return 0
 	}
 	return strings.Count(s, "\n") + 1
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

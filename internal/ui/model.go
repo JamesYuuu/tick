@@ -465,15 +465,6 @@ func (m Model) cmdRefreshHistoryWithStats() tea.Cmd {
 	return m.cmdRefreshHistory(true)
 }
 
-func bodyHeight(windowHeight int) int {
-	// header(1) + blank(2) + blank(2) + status(1) + help(1) + trailing(1)
-	h := windowHeight - 8
-	if h < 0 {
-		return 0
-	}
-	return h
-}
-
 func (m Model) View() string {
 	active := "Today"
 	body := ""

@@ -200,15 +200,6 @@ func centerLinesInWidth(block string, w int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (m Model) frame(title string, body string) string {
-	_ = title
-	sheet := m.styles.Sheet
-	if w := contentWidth(m.width); w > 0 {
-		sheet = sheet.Width(w)
-	}
-	return sheet.Render(body)
-}
-
 func (m Model) footerStatusLine() string {
 	if m.statusMsg != "" {
 		return m.styles.Status.Render(m.statusMsg)

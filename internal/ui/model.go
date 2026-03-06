@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/JamesYuuu/tick/internal/app"
@@ -13,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type view int
@@ -39,12 +41,14 @@ type Model struct {
 	todayList    list.Model
 	upcomingList list.Model
 
-	historyFrom      domain.Day
-	historyTo        domain.Day
-	historyIndex     int
-	historyDone      []domain.Task
-	historyAbandoned []domain.Task
-	historyStats     app.OutcomeRatios
+	historyFrom          domain.Day
+	historyTo            domain.Day
+	historyIndex         int
+	historyScroll        int
+	historyDone          []domain.Task
+	historyAbandoned     []domain.Task
+	historyActiveCreated []domain.Task
+	historyStats         app.OutcomeRatios
 }
 
 type appClient interface {
@@ -56,6 +60,7 @@ type appClient interface {
 	PostponeOneDay(ctx context.Context, id int64) error
 	HistoryDoneByDay(ctx context.Context, day domain.Day) ([]domain.Task, error)
 	HistoryAbandonedByDay(ctx context.Context, day domain.Day) ([]domain.Task, error)
+	HistoryActiveByCreatedDay(ctx context.Context, day domain.Day) ([]domain.Task, error)
 	Stats(ctx context.Context, fromDay, toDay domain.Day) (app.OutcomeRatios, error)
 }
 
@@ -120,13 +125,21 @@ func (d todayItemDelegate) Render(w io.Writer, m list.Model, index int, item lis
 		return
 	}
 
+	selected := index == m.Index()
 	prefix := "  "
-	if index == m.Index() {
+	if selected {
 		prefix = "> "
 	}
 	line := prefix + it.task.Title
+
 	if it.task.IsDelayed(d.currentDay) {
-		line = d.styles.Delayed.Render(line)
+		if selected {
+			line = d.styles.RowSelDl.Render(line)
+		} else {
+			line = d.styles.Delayed.Render(line)
+		}
+	} else if selected {
+		line = d.styles.RowSel.Render(line)
 	}
 	_, _ = fmt.Fprint(w, line)
 }
@@ -141,11 +154,16 @@ func (d simpleItemDelegate) Render(w io.Writer, m list.Model, index int, item li
 	if !ok {
 		return
 	}
+	selected := index == m.Index()
 	prefix := "  "
-	if index == m.Index() {
+	if selected {
 		prefix = "> "
 	}
-	_, _ = fmt.Fprint(w, prefix+it.task.Title)
+	line := prefix + it.task.Title
+	if selected {
+		line = d.styles.RowSel.Render(line)
+	}
+	_, _ = fmt.Fprint(w, line)
 }
 
 func (m Model) Init() tea.Cmd {
@@ -225,13 +243,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		w := msg.Width - 2
-		if w < 0 {
-			w = 0
-		}
-		h := bodyHeight(msg.Height)
-		m.todayList.SetSize(w, h)
-		m.upcomingList.SetSize(w, h)
+		g := calcLayoutMetrics(msg.Width, msg.Height)
+		m.todayList.SetSize(g.innerW, g.innerH)
+		m.upcomingList.SetSize(g.innerW, g.innerH)
+		m.addInput.Width = g.innerW
 		return m, nil
 	case refreshMsg:
 		if msg.err != nil {
@@ -251,8 +266,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.statusMsg = ""
+		m.historyScroll = 0
 		m.historyDone = msg.done
 		m.historyAbandoned = msg.abandoned
+		m.historyActiveCreated = msg.activeCreated
 		if msg.hasStats {
 			m.historyStats = msg.stats
 		}
@@ -301,18 +318,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
-		case key.Matches(msg, m.keys.Today):
-			m.view = viewToday
-			return m, m.cmdRefreshActive()
-		case key.Matches(msg, m.keys.Upcoming):
-			m.view = viewUpcoming
-			return m, m.cmdRefreshActive()
-		case key.Matches(msg, m.keys.History):
-			m.view = viewHistory
-			m.historyTo = m.currentDay()
-			m.historyFrom = addDays(m.historyTo, -6)
-			m.historyIndex = 6
-			return m, m.cmdRefreshHistoryWithStats()
+		case key.Matches(msg, m.keys.NextView):
+			switch m.view {
+			case viewToday:
+				m.view = viewUpcoming
+				return m, m.cmdRefreshActive()
+			case viewUpcoming:
+				m.view = viewHistory
+				m.historyTo = m.currentDay()
+				m.historyFrom = addDays(m.historyTo, -6)
+				m.historyIndex = 6
+				m.historyScroll = 0
+				return m, m.cmdRefreshHistoryWithStats()
+			case viewHistory:
+				m.view = viewToday
+				return m, m.cmdRefreshActive()
+			default:
+				m.view = viewToday
+				return m, m.cmdRefreshActive()
+			}
 		case key.Matches(msg, m.keys.Add):
 			if m.view != viewToday {
 				return m, nil
@@ -343,24 +367,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.view == viewHistory {
 			switch {
 			case key.Matches(msg, m.keys.HistoryUp):
+				if m.historyScroll > 0 {
+					m.historyScroll--
+				}
+				return m, nil
+			case key.Matches(msg, m.keys.HistoryDown):
+				m.historyScroll++
+				return m, nil
+			case key.Matches(msg, m.keys.HistoryLeft):
+				m.historyScroll = 0
 				if m.historyIndex > 0 {
 					m.historyIndex--
 					return m, m.cmdRefreshHistorySelectedDay()
 				}
-				return m, nil
-			case key.Matches(msg, m.keys.HistoryDown):
+				m.historyFrom = addDays(m.historyFrom, -1)
+				m.historyTo = addDays(m.historyTo, -1)
+				m.historyIndex = 0
+				return m, m.cmdRefreshHistoryWithStats()
+			case key.Matches(msg, m.keys.HistoryRight):
+				m.historyScroll = 0
 				if m.historyIndex < 6 {
 					m.historyIndex++
 					return m, m.cmdRefreshHistorySelectedDay()
 				}
-				return m, nil
-			case key.Matches(msg, m.keys.HistoryLeft):
-				m.historyFrom = addDays(m.historyFrom, -1)
-				m.historyTo = addDays(m.historyTo, -1)
-				return m, m.cmdRefreshHistoryWithStats()
-			case key.Matches(msg, m.keys.HistoryRight):
-				m.historyFrom = addDays(m.historyFrom, 1)
-				m.historyTo = addDays(m.historyTo, 1)
+				today := m.currentDay()
+				if m.historyTo.Time().Equal(today.Time()) {
+					return m, nil
+				}
+				nextTo := addDays(m.historyTo, 1)
+				if today.Before(nextTo) {
+					nextTo = today
+				}
+				m.historyTo = nextTo
+				m.historyFrom = addDays(m.historyTo, -6)
+				m.historyIndex = 6
 				return m, m.cmdRefreshHistoryWithStats()
 			}
 		}
@@ -377,35 +417,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 type historyRefreshMsg struct {
-	done      []domain.Task
-	abandoned []domain.Task
-	stats     app.OutcomeRatios
-	hasStats  bool
-	err       error
+	done          []domain.Task
+	abandoned     []domain.Task
+	activeCreated []domain.Task
+	stats         app.OutcomeRatios
+	hasStats      bool
+	err           error
 }
 
 func (m Model) historySelectedDay() domain.Day {
 	return addDays(m.historyFrom, m.historyIndex)
 }
 
-
-func (m Model) cmdRefreshHistorySelectedDay() tea.Cmd {
-	day := m.historySelectedDay()
-	return func() tea.Msg {
-		ctx := context.Background()
-		done, err := m.app.HistoryDoneByDay(ctx, day)
-		if err != nil {
-			return historyRefreshMsg{err: err}
-		}
-		ab, err := m.app.HistoryAbandonedByDay(ctx, day)
-		if err != nil {
-			return historyRefreshMsg{err: err}
-		}
-		return historyRefreshMsg{done: done, abandoned: ab}
-	}
-}
-
-func (m Model) cmdRefreshHistoryWithStats() tea.Cmd {
+func (m Model) cmdRefreshHistory(withStats bool) tea.Cmd {
 	day := m.historySelectedDay()
 	from, to := m.historyFrom, m.historyTo
 	return func() tea.Msg {
@@ -418,32 +442,112 @@ func (m Model) cmdRefreshHistoryWithStats() tea.Cmd {
 		if err != nil {
 			return historyRefreshMsg{err: err}
 		}
+		activeCreated, err := m.app.HistoryActiveByCreatedDay(ctx, day)
+		if err != nil {
+			return historyRefreshMsg{err: err}
+		}
+		if !withStats {
+			return historyRefreshMsg{done: done, abandoned: ab, activeCreated: activeCreated}
+		}
 		stats, err := m.app.Stats(ctx, from, to)
 		if err != nil {
 			return historyRefreshMsg{err: err}
 		}
-		return historyRefreshMsg{done: done, abandoned: ab, stats: stats, hasStats: true}
+		return historyRefreshMsg{done: done, abandoned: ab, activeCreated: activeCreated, stats: stats, hasStats: true}
 	}
 }
 
-func bodyHeight(windowHeight int) int {
-	// header(1) + blank(2) + blank(2) + status(1) + help(1) + trailing(1)
-	h := windowHeight - 8
-	if h < 0 {
-		return 0
-	}
-	return h
+func (m Model) cmdRefreshHistorySelectedDay() tea.Cmd {
+	return m.cmdRefreshHistory(false)
+}
+
+func (m Model) cmdRefreshHistoryWithStats() tea.Cmd {
+	return m.cmdRefreshHistory(true)
 }
 
 func (m Model) View() string {
+	active := "Today"
+	body := ""
 	switch m.view {
 	case viewToday:
-		return renderToday(m)
+		active = "Today"
+		body = renderTodayBody(m)
 	case viewUpcoming:
-		return renderUpcoming(m)
+		active = "Upcoming"
+		body = renderUpcomingBody(m)
 	case viewHistory:
-		return renderHistory(m)
+		active = "History"
+		body = renderHistoryBody(m)
 	default:
-		return renderToday(m)
+		active = "Today"
+		body = renderTodayBody(m)
 	}
+
+	header := m.header(active)
+	sep := separatorLine(m.width)
+	status := m.footerStatusLine()
+	help := m.help()
+
+	// Clamp variable-height blocks so zone line positions are stable.
+	header = forceHeight(header, 1)
+	status = forceHeight(status, 1)
+	help = forceHeight(help, 1)
+
+	// Fullscreen layout has a fixed 2-line footer (status + help).
+	g := calcLayoutMetrics(m.width, m.height)
+	if g.innerW > 0 {
+		m.todayList.SetSize(g.innerW, g.innerH)
+		m.upcomingList.SetSize(g.innerW, g.innerH)
+		// Prefer sizing in WindowSizeMsg, but keep addInput stable if View runs first.
+		m.addInput.Width = g.innerW
+	}
+	frameBody := forceHeight(body, g.innerH)
+	workspace := m.sheetFrame(frameBody, g.contentW)
+	workspace = forceHeight(workspace, g.workspaceH)
+
+	var b strings.Builder
+	b.WriteString(header)
+	b.WriteString("\n")
+	b.WriteString(sep)
+	b.WriteString("\n")
+	b.WriteString(workspace)
+	b.WriteString("\n")
+	b.WriteString(sep)
+	b.WriteString("\n")
+	// Status line is always present to keep footer height stable.
+	b.WriteString(status)
+	b.WriteString("\n")
+	b.WriteString(help)
+
+	out := b.String()
+	out = forceHeight(out, m.height)
+	out = clipLinesToWidth(out, g.contentW)
+	out = padLeftToWidth(out, m.width)
+	return out
+}
+
+func (m Model) sheetFrame(body string, contentW int) string {
+	sheet := m.styles.Sheet
+	if contentW > 0 {
+		// Clamp to content width by accounting for the sheet's own frame size.
+		w := contentW - sheet.GetHorizontalFrameSize()
+		if w < 0 {
+			w = 0
+		}
+		sheet = sheet.Width(w)
+	}
+	return sheet.Render(body)
+}
+
+func clipLinesToWidth(s string, w int) string {
+	if w <= 0 || s == "" {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		if ansi.StringWidth(lines[i]) > w {
+			lines[i] = ansi.Truncate(lines[i], w, "")
+		}
+	}
+	return strings.Join(lines, "\n")
 }

@@ -1,14 +1,14 @@
-# tuitodo
+# tick
 
 Terminal TUI todo app.
 
 ## Run
 
 ```bash
-go run ./cmd/tuitodo
+go run ./cmd/tick
 ```
 
-Data is stored in `~/.tuitodo/todo.db`.
+Data is stored in `~/.tick/todo.db`.
 
 ## Views
 
@@ -18,7 +18,7 @@ Data is stored in `~/.tuitodo/todo.db`.
 
 ## Keys
 
-- `1` Today, `2` Upcoming, `3` History
+- `tab` next view (Today -> Upcoming -> History)
 - `q` quit
 
 Today:
@@ -30,5 +30,5 @@ Today:
 
 History:
 
-- `j/k` or `Down/Up` move day
-- `h/l` or `Left/Right` shift 7-day window
+- `h/l` or `Left/Right` move day
+- `j/k` or `Down/Up` scroll tasks

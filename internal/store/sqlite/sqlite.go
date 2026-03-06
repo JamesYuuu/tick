@@ -116,24 +116,7 @@ func (s *SQLiteStore) ListActive(ctx context.Context, p store.ListActiveParams) 
 }
 
 func (s *SQLiteStore) ListActiveByCreatedDay(ctx context.Context, day domain.Day) ([]domain.Task, error) {
-	rows, err := s.db.QueryContext(ctx, listActiveByCreatedDayQuery, day.String())
-	if err != nil {
-		return nil, fmt.Errorf("list active by created day: %w", err)
-	}
-	defer rows.Close()
-
-	var out []domain.Task
-	for rows.Next() {
-		t, err := scanTask(rows)
-		if err != nil {
-			return nil, fmt.Errorf("list active by created day: %w", err)
-		}
-		out = append(out, t)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list active by created day: %w", err)
-	}
-	return out, nil
+	return s.queryTasks(ctx, "list active by created day", listActiveByCreatedDayQuery, day.String())
 }
 
 func (s *SQLiteStore) MarkDone(ctx context.Context, id int64, doneDay domain.Day) error {
@@ -208,53 +191,36 @@ func (s *SQLiteStore) Postpone(ctx context.Context, id int64, newDueDay domain.D
 }
 
 func (s *SQLiteStore) ListDoneByDay(ctx context.Context, day domain.Day) ([]domain.Task, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, title, status, created_day, due_day, done_day, abandoned_day
+	return s.queryTasks(ctx, "list done", `SELECT id, title, status, created_day, due_day, done_day, abandoned_day
 		 FROM tasks
 		 WHERE status = ? AND done_day = ?
-		 ORDER BY id ASC`,
-		string(domain.StatusDone), day.String(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("list done: %w", err)
-	}
-	defer rows.Close()
-	var out []domain.Task
-	for rows.Next() {
-		t, err := scanTask(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, t)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list done: %w", err)
-	}
-	return out, nil
+		 ORDER BY id ASC`, string(domain.StatusDone), day.String())
 }
 
 func (s *SQLiteStore) ListAbandonedByDay(ctx context.Context, day domain.Day) ([]domain.Task, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, title, status, created_day, due_day, done_day, abandoned_day
+	return s.queryTasks(ctx, "list abandoned", `SELECT id, title, status, created_day, due_day, done_day, abandoned_day
 		 FROM tasks
 		 WHERE status = ? AND abandoned_day = ?
-		 ORDER BY id ASC`,
-		string(domain.StatusAbandoned), day.String(),
-	)
+		 ORDER BY id ASC`, string(domain.StatusAbandoned), day.String())
+}
+
+func (s *SQLiteStore) queryTasks(ctx context.Context, op, q string, args ...any) ([]domain.Task, error) {
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list abandoned: %w", err)
+		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 	defer rows.Close()
+
 	var out []domain.Task
 	for rows.Next() {
 		t, err := scanTask(rows)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s: %w", op, err)
 		}
 		out = append(out, t)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list abandoned: %w", err)
+		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 	return out, nil
 }

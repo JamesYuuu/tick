@@ -68,7 +68,9 @@ func renderHistoryBody(m Model) string {
 	dateBlock := renderHistoryDateTable(m, innerW)
 	// Divider aligns to the sheet frame.
 	divider := ""
-	if innerW > 1 {
+	if innerW > 2 {
+		// History internal divider: keep right edge short by 2 cells to avoid
+		// terminal wrap artifacts (e.g., kitty) while matching the sheet frame.
 		divider = strings.Repeat("-", innerW-2)
 	}
 

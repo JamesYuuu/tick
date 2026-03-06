@@ -744,8 +744,8 @@ func TestRenderHistoryBody_DateTableAndDividerAndViewportScroll(t *testing.T) {
 	if innerW <= 0 {
 		t.Fatalf("expected innerW > 0")
 	}
-	// Internal divider: right -1 cell.
-	divider := strings.Repeat("-", innerW-1)
+	// Internal divider: right -2 cells.
+	divider := strings.Repeat("-", innerW-2)
 	if indexOf(body0, divider) < 0 {
 		t.Fatalf("expected divider of length %d, got:\n%s", innerW, body0)
 	}
@@ -784,7 +784,7 @@ func TestRenderHistoryBody_DoesNotDoubleHorizontalRulesBetweenSelectorAndDetails
 
 	body := renderHistoryBody(m)
 	innerW := sheetInnerWidth(m.width)
-	divider := strings.Repeat("-", innerW-1)
+	divider := strings.Repeat("-", innerW-2)
 
 	lines := strings.Split(body, "\n")
 	// We want exactly one divider line.
@@ -820,7 +820,7 @@ func TestRenderHistoryBody_DividerEndsWithSpaceToAvoidWrapArtifacts(t *testing.T
 		t.Fatalf("expected innerW > 0")
 	}
 
-	divider := strings.Repeat("-", innerW-1)
+	divider := strings.Repeat("-", innerW-2)
 	if indexOf(body, divider) < 0 {
 		t.Fatalf("expected inset divider %q to be present, got:\n%s", divider, body)
 	}

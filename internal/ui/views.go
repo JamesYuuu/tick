@@ -17,17 +17,7 @@ func renderTodayBody(m Model) string {
 		return "Add task\n\n" + m.addInput.View()
 	}
 	if len(m.todayList.Items()) == 0 {
-		msg := "Nothing due today."
-		innerW := sheetInnerWidth(m.width)
-		workspaceH := m.height - (1 + 1 + 1 + 2) // header + sep + sep + (status+help)
-		if workspaceH < 0 {
-			workspaceH = 0
-		}
-		innerH := workspaceH - sheetVertMargin
-		if innerH < 0 {
-			innerH = 0
-		}
-		return centerInBox(msg, innerW, innerH)
+		return renderCenteredEmpty(m, "Nothing due today.")
 	}
 	return m.todayList.View()
 }
@@ -39,19 +29,14 @@ func renderUpcoming(m Model) string {
 
 func renderUpcomingBody(m Model) string {
 	if len(m.upcomingList.Items()) == 0 {
-		msg := "No upcoming tasks."
-		innerW := sheetInnerWidth(m.width)
-		workspaceH := m.height - (1 + 1 + 1 + 2) // header + sep + sep + (status+help)
-		if workspaceH < 0 {
-			workspaceH = 0
-		}
-		innerH := workspaceH - sheetVertMargin
-		if innerH < 0 {
-			innerH = 0
-		}
-		return centerInBox(msg, innerW, innerH)
+		return renderCenteredEmpty(m, "No upcoming tasks.")
 	}
 	return m.upcomingList.View()
+}
+
+func renderCenteredEmpty(m Model, msg string) string {
+	g := calcLayoutMetrics(m.width, m.height)
+	return centerInBox(msg, g.innerW, g.innerH)
 }
 
 func renderHistory(m Model) string {

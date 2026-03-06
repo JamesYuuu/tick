@@ -186,6 +186,18 @@ func TestRenderUpcomingBody_EmptyCenteredInWorkspace(t *testing.T) {
 	}
 }
 
+func TestRenderCenteredEmpty_UsesLayoutInnerBox(t *testing.T) {
+	m := NewWithDeps(newFakeApp(domain.MustParseDay("2026-03-04"), nil), fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	um, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = um.(Model)
+
+	out := renderCenteredEmpty(m, "Nothing due today.")
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != calcLayoutMetrics(80, 24).innerH {
+		t.Fatalf("expected centered empty to use innerH")
+	}
+}
+
 func listLen(m list.Model) int { return len(m.Items()) }
 
 type fakeClock struct{ now time.Time }

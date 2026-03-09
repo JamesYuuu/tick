@@ -503,17 +503,23 @@ func TestModel_View_RendersThreeZonesAndFooterHelp(t *testing.T) {
 	if len(lines) == 0 {
 		t.Fatalf("expected View to return at least 1 line")
 	}
-	if !strings.Contains(lines[0], "[tick]") {
-		t.Fatalf("expected first line to contain [tick], got %q", lines[0])
+	if !strings.Contains(lines[0], appLogo) {
+		t.Fatalf("expected first line to contain %q, got %q", appLogo, lines[0])
 	}
 	if strings.Contains(lines[0], "tuitodo") {
 		t.Fatalf("expected header to not contain old app name, got %q", lines[0])
 	}
-	if !strings.Contains(lines[0], "{Today}") {
-		t.Fatalf("expected active tab marker on Today, got %q", lines[0])
+	if strings.Contains(lines[0], "tick") {
+		t.Fatalf("expected header to not contain tick wordmark, got %q", lines[0])
 	}
 	if strings.Contains(lines[0], "{Upcoming}") || strings.Contains(lines[0], "{History}") {
 		t.Fatalf("expected only active tab to use marker, got %q", lines[0])
+	}
+	if !strings.Contains(lines[0], "[Today]") {
+		t.Fatalf("expected active tab to use visible selected-label fallback, got %q", lines[0])
+	}
+	if strings.Contains(lines[0], "[Upcoming]") || strings.Contains(lines[0], "[History]") {
+		t.Fatalf("expected only active tab to use selected-label fallback, got %q", lines[0])
 	}
 
 	// Separators are inset by two spaces on both left and right.
@@ -536,6 +542,28 @@ func TestModel_View_RendersThreeZonesAndFooterHelp(t *testing.T) {
 	}
 }
 
+func TestModel_View_Header_UsesReverseSelectedTabAndAsciiLogo(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	day := domain.MustParseDay("2026-03-04")
+	m := NewWithDeps(newFakeApp(day, nil), fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	um, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = um.(Model)
+
+	out := m.View()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if !strings.Contains(lines[0], "[Today]") {
+		t.Fatalf("expected active tab to stay visibly distinct in ASCII fallback, got %q", lines[0])
+	}
+	if strings.Contains(lines[0], "[Upcoming]") || strings.Contains(lines[0], "[History]") {
+		t.Fatalf("expected inactive tabs to render differently from selected tab, got %q", lines[0])
+	}
+	if strings.Contains(lines[0], "tick") {
+		t.Fatalf("expected ascii symbol logo instead of tick wordmark, got %q", lines[0])
+	}
+}
+
 func TestModel_View_UsesFixedZoneLinePositions_80x24(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.Ascii)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
@@ -551,15 +579,15 @@ func TestModel_View_UsesFixedZoneLinePositions_80x24(t *testing.T) {
 
 	// Simulate sheet rendering producing multi-line header content (e.g. wrapping).
 	m.styles.Tab = m.styles.Tab.Width(1)
-	m.styles.TabOn = m.styles.TabOn.Width(1)
+	m.styles.Reverse = m.styles.Reverse.Width(1)
 
 	out := m.View()
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	if len(lines) != h {
 		t.Fatalf("expected View to return exactly %d lines, got %d", h, len(lines))
 	}
-	if !strings.Contains(lines[0], "[tick]") {
-		t.Fatalf("expected header at line 1 to contain [tick], got %q", lines[0])
+	if !strings.Contains(lines[0], appLogo) {
+		t.Fatalf("expected header at line 1 to contain %q, got %q", appLogo, lines[0])
 	}
 
 	sep := separatorLine(w)

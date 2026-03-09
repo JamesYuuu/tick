@@ -31,8 +31,8 @@ func TestModel_History_ShowsEmptyCopyUnderHeadingsWhenNoOutcomes(t *testing.T) {
 	m.height = 24
 
 	bodyOnly := renderHistoryBody(m)
-	if indexOf(bodyOnly, "None") < 0 {
-		t.Fatalf("expected history body to show None when there are no rows, got:\n%s", bodyOnly)
+	if indexOf(bodyOnly, "No history tasks.") < 0 {
+		t.Fatalf("expected history body to show No history tasks. when there are no rows, got:\n%s", bodyOnly)
 	}
 	if indexOf(bodyOnly, "Done") >= 0 || indexOf(bodyOnly, "Abandoned") >= 0 {
 		t.Fatalf("expected history body to not include Done/Abandoned headings anymore, got:\n%s", bodyOnly)
@@ -106,6 +106,11 @@ func TestModel_History_UpDownScrollsDetails_NotDate(t *testing.T) {
 	a.historyAbandonedByDay = map[string][]domain.Task{}
 	a.historyActiveByCreatedDay = map[string][]domain.Task{}
 	a.statsRatios = map[string]float64{}
+	rows := make([]domain.Task, 0, 12)
+	for i := 0; i < 12; i++ {
+		rows = append(rows, domain.Task{ID: int64(i + 1), Title: fmt.Sprintf("done-%02d", i+1), Status: domain.StatusDone, CreatedDay: current, DueDay: current, DoneDay: &current})
+	}
+	a.historyDoneByDay[current.String()] = rows
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
 	um, cmd := m.Update(keyTab())
@@ -116,6 +121,8 @@ func TestModel_History_UpDownScrollsDetails_NotDate(t *testing.T) {
 		t.Fatalf("expected cmd when entering history view")
 	}
 	m = applyCmd(m, cmd)
+	um, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 18})
+	m = um.(Model)
 
 	idx0 := m.historyIndex
 	mt := reflect.TypeOf(m)
@@ -157,6 +164,76 @@ func TestModel_History_UpDownScrollsDetails_NotDate(t *testing.T) {
 	scroll2 := reflect.ValueOf(m).FieldByName("historyScroll").Int()
 	if scroll2 != scroll0 {
 		t.Fatalf("expected historyScroll to return to %d, got %d", scroll0, scroll2)
+	}
+}
+
+func TestModel_History_DownDoesNotScrollWhenAllRowsFit(t *testing.T) {
+	disableTick(t)
+
+	day := domain.MustParseDay("2026-03-07")
+	a := newFakeApp(day, nil)
+	a.historyDoneByDay[day.String()] = []domain.Task{{ID: 1, Title: "one", Status: domain.StatusDone, CreatedDay: day, DueDay: day, DoneDay: &day}}
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	um, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
+	m = um.(Model)
+	m.view = viewHistory
+	m.historyFrom = addDays(day, -6)
+	m.historyTo = day
+	m.historyIndex = 6
+	m = applyCmd(m, m.cmdRefreshHistorySelectedDay())
+
+	if m.historyScroll != 0 {
+		t.Fatalf("expected initial historyScroll=0, got %d", m.historyScroll)
+	}
+	um, _ = m.Update(keyRune('j'))
+	m = um.(Model)
+	if m.historyScroll != 0 {
+		t.Fatalf("expected no scrolling when all rows fit, got %d", m.historyScroll)
+	}
+
+	um, _ = m.Update(keyRune('k'))
+	m = um.(Model)
+	if m.historyScroll != 0 {
+		t.Fatalf("expected no upward scrolling when all rows fit, got %d", m.historyScroll)
+	}
+}
+
+func TestModel_History_DownClampsAtLastViewportStart(t *testing.T) {
+	disableTick(t)
+
+	day := domain.MustParseDay("2026-03-07")
+	a := newFakeApp(day, nil)
+	rows := make([]domain.Task, 0, 12)
+	for i := 0; i < 12; i++ {
+		rows = append(rows, domain.Task{ID: int64(i + 1), Title: fmt.Sprintf("done-%02d", i+1), Status: domain.StatusDone, CreatedDay: day, DueDay: day, DoneDay: &day})
+	}
+	a.historyDoneByDay[day.String()] = rows
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	um, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 18})
+	m = um.(Model)
+	m.view = viewHistory
+	m.historyFrom = addDays(day, -6)
+	m.historyTo = day
+	m.historyIndex = 6
+	m = applyCmd(m, m.cmdRefreshHistorySelectedDay())
+
+	for i := 0; i < 20; i++ {
+		um, _ = m.Update(keyRune('j'))
+		m = um.(Model)
+	}
+
+	if m.historyScroll != 6 {
+		t.Fatalf("expected historyScroll clamped to 6, got %d", m.historyScroll)
+	}
+
+	body := renderHistoryBody(m)
+	if strings.Contains(body, "done-06") {
+		t.Fatalf("expected body to start at the last full viewport, got:\n%s", body)
+	}
+	if !containsAll(body, []string{"done-07", "done-12"}) {
+		t.Fatalf("expected body to show the final viewport rows, got:\n%s", body)
 	}
 }
 
@@ -719,9 +796,12 @@ func TestRenderHistoryBody_DateTableAndDividerAndViewportScroll(t *testing.T) {
 	if indexOf(body0, divider) < 0 {
 		t.Fatalf("expected divider of length %d, got:\n%s", innerW, body0)
 	}
-	// Selected date should be reverse video (SGR 7).
+	// Selected date should stay reverse video when ANSI styling is available.
 	if !strings.Contains(body0, "\x1b[7m") {
 		t.Fatalf("expected reverse-video selected date, got:\n%s", body0)
+	}
+	if !strings.Contains(body0, "\x1b[7m 03-07 \x1b[0m|") {
+		t.Fatalf("expected selected ANSI date cell to preserve padded width, got:\n%s", body0)
 	}
 
 	// Scrolling should change which rows are visible.
@@ -734,6 +814,32 @@ func TestRenderHistoryBody_DateTableAndDividerAndViewportScroll(t *testing.T) {
 	}
 	if indexOf(bodyScrolled, "done-01") >= 0 {
 		t.Fatalf("expected scrolled viewport to not include done-01, got:\n%s", bodyScrolled)
+	}
+}
+
+func TestRenderHistoryBody_DateTable_UsesAsciiSelectedLabelFallback(t *testing.T) {
+	disableTick(t)
+
+	lipgloss.SetColorProfile(termenv.Ascii)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	today := domain.MustParseDay("2026-03-07")
+	from := domain.MustParseDay("2026-03-01")
+
+	m := NewWithDeps(newFakeApp(today, nil), fakeClock{now: time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	m.view = viewHistory
+	m.width = 80
+	m.height = 18
+	m.historyFrom = from
+	m.historyTo = today
+	m.historyIndex = 6
+
+	body := renderHistoryBody(m)
+	if !strings.Contains(body, "[03-07]") {
+		t.Fatalf("expected selected date to use visible ASCII fallback, got:\n%s", body)
+	}
+	if strings.Contains(body, "[03-06]") {
+		t.Fatalf("expected unselected dates to render differently from selected date, got:\n%s", body)
 	}
 }
 

@@ -70,6 +70,35 @@ func renderHistoryBody(m Model) string {
 	return strings.Join(parts, "\n")
 }
 
+func (m Model) historyDetailViewportHeight() int {
+	innerH := calcLayoutMetrics(m.width, m.height).innerH
+	selectorH := linesCount(renderHistoryDateTable(m, sheetInnerWidth(m.width)))
+	detailH := innerH - (selectorH + 2)
+	if detailH < 0 {
+		return 0
+	}
+	return detailH
+}
+
+func (m Model) maxHistoryScroll() int {
+	rows := historyDetailRows(m)
+	h := m.historyDetailViewportHeight()
+	if h <= 0 || len(rows) <= h {
+		return 0
+	}
+	return len(rows) - h
+}
+
+func (m *Model) clampHistoryScroll() {
+	if m.historyScroll < 0 {
+		m.historyScroll = 0
+	}
+	max := m.maxHistoryScroll()
+	if m.historyScroll > max {
+		m.historyScroll = max
+	}
+}
+
 func renderHistoryDateTable(m Model, innerW int) string {
 	cellW := 7                // " 03-01 "
 	tableW := 1 + 7*(cellW+1) // leading '+' + 7*(cell + '+')
@@ -80,7 +109,7 @@ func renderHistoryDateTable(m Model, innerW int) string {
 			d := addDays(m.historyFrom, i)
 			v := fmtMMDD(d)
 			if i == m.historyIndex {
-				v = m.styles.Reverse.Render(v)
+				v = m.selectedLabel(v)
 			}
 			parts = append(parts, v)
 		}
@@ -96,7 +125,7 @@ func renderHistoryDateTable(m Model, innerW int) string {
 		d := addDays(m.historyFrom, i)
 		content := fmt.Sprintf(" %s ", fmtMMDD(d))
 		if i == m.historyIndex {
-			content = m.styles.Reverse.Render(content)
+			content = m.selectedCellLabel(fmtMMDD(d))
 		}
 		// Ensure fixed cell width (ANSI-aware width isn't needed since content is ASCII + SGR).
 		if len(content) < cellW {
@@ -116,14 +145,18 @@ func renderHistoryDetailsViewport(m Model, h int) string {
 		return ""
 	}
 	if len(rows) == 0 {
-		rows = []string{"None"}
+		rows = []string{"No history tasks."}
 	}
 	start := m.historyScroll
 	if start < 0 {
 		start = 0
 	}
-	if start > len(rows) {
-		start = len(rows)
+	maxStart := len(rows) - h
+	if maxStart < 0 {
+		maxStart = 0
+	}
+	if start > maxStart {
+		start = maxStart
 	}
 	end := start + h
 	if end > len(rows) {

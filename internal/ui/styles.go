@@ -6,12 +6,12 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 )
 
 type styles struct {
 	AppTitle lipgloss.Style
 	Tab      lipgloss.Style
-	TabOn    lipgloss.Style
 	Help     lipgloss.Style
 	Sheet    lipgloss.Style
 	RowSel   lipgloss.Style
@@ -22,6 +22,7 @@ type styles struct {
 }
 
 const maxContentWidth = 96
+const appLogo = "`\\/`"
 
 func contentWidth(windowWidth int) int {
 	if windowWidth <= 0 {
@@ -167,7 +168,6 @@ func defaultStyles() styles {
 	return styles{
 		AppTitle: lipgloss.NewStyle().Bold(true),
 		Tab:      lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
-		TabOn:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")),
 		Help:     lipgloss.NewStyle().Foreground(lipgloss.Color("242")),
 		Sheet:    lipgloss.NewStyle().Padding(0, 1).Border(sheetBorder).BorderForeground(lipgloss.Color("240")),
 		RowSel:   lipgloss.NewStyle().Background(lipgloss.Color("254")).Foreground(lipgloss.Color("236")),
@@ -218,7 +218,7 @@ func fmtRatio(f float64) string {
 }
 
 func (m Model) header(active string) string {
-	left := m.styles.AppTitle.Render("[tick]")
+	left := m.styles.AppTitle.Render(appLogo)
 	tabs := []string{
 		m.tab("Today", active == "Today"),
 		m.tab("Upcoming", active == "Upcoming"),
@@ -229,9 +229,23 @@ func (m Model) header(active string) string {
 
 func (m Model) tab(name string, on bool) string {
 	if on {
-		return m.styles.TabOn.Render("{" + name + "}")
+		return m.selectedLabel(name)
 	}
 	return m.styles.Tab.Render(name)
+}
+
+func (m Model) selectedLabel(label string) string {
+	if lipgloss.ColorProfile() == termenv.Ascii {
+		return "[" + label + "]"
+	}
+	return m.styles.Reverse.Render(label)
+}
+
+func (m Model) selectedCellLabel(label string) string {
+	if lipgloss.ColorProfile() == termenv.Ascii {
+		return m.selectedLabel(label)
+	}
+	return m.styles.Reverse.Render(" " + label + " ")
 }
 
 func (m Model) help() string {

@@ -247,6 +247,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.todayList.SetSize(g.innerW, g.innerH)
 		m.upcomingList.SetSize(g.innerW, g.innerH)
 		m.addInput.Width = g.innerW
+		m.clampHistoryScroll()
 		return m, nil
 	case refreshMsg:
 		if msg.err != nil {
@@ -367,12 +368,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.view == viewHistory {
 			switch {
 			case key.Matches(msg, m.keys.HistoryUp):
+				m.clampHistoryScroll()
 				if m.historyScroll > 0 {
 					m.historyScroll--
 				}
 				return m, nil
 			case key.Matches(msg, m.keys.HistoryDown):
-				m.historyScroll++
+				m.clampHistoryScroll()
+				if m.historyScroll < m.maxHistoryScroll() {
+					m.historyScroll++
+				}
 				return m, nil
 			case key.Matches(msg, m.keys.HistoryLeft):
 				m.historyScroll = 0

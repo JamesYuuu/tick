@@ -31,8 +31,8 @@ func TestModel_History_ShowsEmptyCopyUnderHeadingsWhenNoOutcomes(t *testing.T) {
 	m.height = 24
 
 	bodyOnly := renderHistoryBody(m)
-	if indexOf(bodyOnly, "None") < 0 {
-		t.Fatalf("expected history body to show None when there are no rows, got:\n%s", bodyOnly)
+	if indexOf(bodyOnly, "No history tasks.") < 0 {
+		t.Fatalf("expected history body to show No history tasks. when there are no rows, got:\n%s", bodyOnly)
 	}
 	if indexOf(bodyOnly, "Done") >= 0 || indexOf(bodyOnly, "Abandoned") >= 0 {
 		t.Fatalf("expected history body to not include Done/Abandoned headings anymore, got:\n%s", bodyOnly)

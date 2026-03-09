@@ -22,7 +22,7 @@ type styles struct {
 }
 
 const maxContentWidth = 96
-const appLogo = "`\\/`"
+const appLogo = "tick"
 
 func contentWidth(windowWidth int) int {
 	if windowWidth <= 0 {
@@ -166,7 +166,7 @@ func defaultStyles() styles {
 	}
 
 	return styles{
-		AppTitle: lipgloss.NewStyle().Bold(true),
+		AppTitle: lipgloss.NewStyle().Bold(true).Italic(true),
 		Tab:      lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
 		Help:     lipgloss.NewStyle().Foreground(lipgloss.Color("242")),
 		Sheet:    lipgloss.NewStyle().Padding(0, 1).Border(sheetBorder).BorderForeground(lipgloss.Color("240")),

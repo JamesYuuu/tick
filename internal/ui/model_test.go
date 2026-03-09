@@ -424,6 +424,63 @@ func TestTodayDelegate_RendersDelayedTaskInRed(t *testing.T) {
 	}
 }
 
+func TestTodayItemDelegate_SelectedDelayed_KeepsRedTextAndSelectedBackground(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	day := domain.MustParseDay("2026-03-04")
+	s := defaultStyles()
+	d := todayItemDelegate{styles: s, currentDay: day}
+	l := newTaskList(d)
+	l.SetItems([]list.Item{taskItem{task: domain.Task{ID: 1, Title: "late", Status: domain.StatusActive, CreatedDay: day, DueDay: addDays(day, -1)}}})
+	l.Select(0)
+
+	var buf bytes.Buffer
+	d.Render(&buf, l, 0, l.Items()[0])
+	got := buf.String()
+
+	if strings.Contains(got, "> ") {
+		t.Fatalf("expected selected row to not use > marker, got %q", got)
+	}
+
+	if !strings.Contains(got, "late") {
+		t.Fatalf("expected selected delayed row to contain title, got %q", got)
+	}
+	if !strings.Contains(got, "\x1b[7m") {
+		t.Fatalf("expected selected delayed row to use reverse-style selected background, got %q", got)
+	}
+	red := regexp.MustCompile("\\x1b\\[[0-9;]*(31|91|38;5;1|38;5;9)[0-9;]*m")
+	if !red.MatchString(got) {
+		t.Fatalf("expected selected delayed row to keep red foreground, got %q", got)
+	}
+}
+
+func TestSimpleItemDelegate_Selected_UsesSharedSelectedStyle(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	s := defaultStyles()
+	d := simpleItemDelegate{styles: s}
+	l := newTaskList(d)
+	l.SetItems([]list.Item{taskItem{task: domain.Task{ID: 1, Title: "soon", Status: domain.StatusActive}}})
+	l.Select(0)
+
+	var buf bytes.Buffer
+	d.Render(&buf, l, 0, l.Items()[0])
+	got := buf.String()
+
+	if strings.Contains(got, "> ") {
+		t.Fatalf("expected selected row to not use > marker, got %q", got)
+	}
+
+	if !strings.Contains(got, "soon") {
+		t.Fatalf("expected selected row to contain title, got %q", got)
+	}
+	if !strings.Contains(got, "\x1b[7m") {
+		t.Fatalf("expected selected row to use reverse-style selected treatment, got %q", got)
+	}
+}
+
 func TestModel_View_ShowsSelectedRowWithDistinctHighlight(t *testing.T) {
 	orig := tickEvery
 	tickEvery = 0
@@ -446,10 +503,9 @@ func TestModel_View_ShowsSelectedRowWithDistinctHighlight(t *testing.T) {
 
 	out := m.View()
 
-	// Selected row should use a calm background highlight.
-	bg := regexp.MustCompile("\\x1b\\[[0-9;]*48;[0-9;]*m")
-	if !bg.MatchString(out) {
-		t.Fatalf("expected View to include ANSI background highlight for selected row, got: %q", out)
+	// Selected row should use the shared reverse selection treatment.
+	if !strings.Contains(out, "\x1b[7m") {
+		t.Fatalf("expected View to include reverse-video highlight for selected row, got: %q", out)
 	}
 }
 

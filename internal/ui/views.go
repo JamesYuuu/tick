@@ -145,7 +145,7 @@ func renderHistoryDetailsViewport(m Model, h int) string {
 		return ""
 	}
 	if len(rows) == 0 {
-		rows = []string{"None"}
+		rows = []string{"No history tasks."}
 	}
 	start := m.historyScroll
 	if start < 0 {

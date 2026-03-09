@@ -509,8 +509,8 @@ func TestModel_View_RendersThreeZonesAndFooterHelp(t *testing.T) {
 	if strings.Contains(lines[0], "tuitodo") {
 		t.Fatalf("expected header to not contain old app name, got %q", lines[0])
 	}
-	if strings.Contains(lines[0], "tick") {
-		t.Fatalf("expected header to not contain tick wordmark, got %q", lines[0])
+	if !strings.Contains(lines[0], "tick") {
+		t.Fatalf("expected header to contain tick wordmark, got %q", lines[0])
 	}
 	if strings.Contains(lines[0], "{Upcoming}") || strings.Contains(lines[0], "{History}") {
 		t.Fatalf("expected only active tab to use marker, got %q", lines[0])
@@ -542,8 +542,8 @@ func TestModel_View_RendersThreeZonesAndFooterHelp(t *testing.T) {
 	}
 }
 
-func TestModel_View_Header_UsesReverseSelectedTabAndAsciiLogo(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.Ascii)
+func TestModel_View_Header_UsesReverseSelectedTabAndStyledTickWordmark(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 
 	day := domain.MustParseDay("2026-03-04")
@@ -553,14 +553,17 @@ func TestModel_View_Header_UsesReverseSelectedTabAndAsciiLogo(t *testing.T) {
 
 	out := m.View()
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if !strings.Contains(lines[0], "[Today]") {
-		t.Fatalf("expected active tab to stay visibly distinct in ASCII fallback, got %q", lines[0])
+	if !strings.Contains(lines[0], "tick") {
+		t.Fatalf("expected tick wordmark in header, got %q", lines[0])
 	}
-	if strings.Contains(lines[0], "[Upcoming]") || strings.Contains(lines[0], "[History]") {
-		t.Fatalf("expected inactive tabs to render differently from selected tab, got %q", lines[0])
+	if !strings.Contains(lines[0], "\x1b[1;") && !strings.Contains(lines[0], "\x1b[1m") {
+		t.Fatalf("expected bold styling on tick wordmark, got %q", lines[0])
 	}
-	if strings.Contains(lines[0], "tick") {
-		t.Fatalf("expected ascii symbol logo instead of tick wordmark, got %q", lines[0])
+	if !strings.Contains(lines[0], "\x1b[1;3m") && !strings.Contains(lines[0], "\x1b[3;") && !strings.Contains(lines[0], "\x1b[3m") {
+		t.Fatalf("expected italic styling on tick wordmark, got %q", lines[0])
+	}
+	if strings.Contains(lines[0], "{Today}") || strings.Contains(lines[0], "{Upcoming}") || strings.Contains(lines[0], "{History}") {
+		t.Fatalf("expected no brace-selected tabs, got %q", lines[0])
 	}
 }
 

@@ -126,20 +126,19 @@ func (d todayItemDelegate) Render(w io.Writer, m list.Model, index int, item lis
 	}
 
 	selected := index == m.Index()
-	prefix := "  "
-	if selected {
-		prefix = "> "
+	line := it.task.Title
+	if !selected {
+		line = "  " + line
 	}
-	line := prefix + it.task.Title
 
 	if it.task.IsDelayed(d.currentDay) {
 		if selected {
-			line = d.styles.RowSelDl.Render(line)
+			line = d.styles.Reverse.Render(d.styles.Delayed.Render(line))
 		} else {
 			line = d.styles.Delayed.Render(line)
 		}
 	} else if selected {
-		line = d.styles.RowSel.Render(line)
+		line = d.styles.Reverse.Render(line)
 	}
 	_, _ = fmt.Fprint(w, line)
 }
@@ -155,13 +154,12 @@ func (d simpleItemDelegate) Render(w io.Writer, m list.Model, index int, item li
 		return
 	}
 	selected := index == m.Index()
-	prefix := "  "
-	if selected {
-		prefix = "> "
+	line := it.task.Title
+	if !selected {
+		line = "  " + line
 	}
-	line := prefix + it.task.Title
 	if selected {
-		line = d.styles.RowSel.Render(line)
+		line = d.styles.Reverse.Render(line)
 	}
 	_, _ = fmt.Fprint(w, line)
 }
@@ -247,6 +245,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.todayList.SetSize(g.innerW, g.innerH)
 		m.upcomingList.SetSize(g.innerW, g.innerH)
 		m.addInput.Width = g.innerW
+		m.clampHistoryScroll()
 		return m, nil
 	case refreshMsg:
 		if msg.err != nil {
@@ -367,12 +366,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.view == viewHistory {
 			switch {
 			case key.Matches(msg, m.keys.HistoryUp):
+				m.clampHistoryScroll()
 				if m.historyScroll > 0 {
 					m.historyScroll--
 				}
 				return m, nil
 			case key.Matches(msg, m.keys.HistoryDown):
-				m.historyScroll++
+				m.clampHistoryScroll()
+				if m.historyScroll < m.maxHistoryScroll() {
+					m.historyScroll++
+				}
 				return m, nil
 			case key.Matches(msg, m.keys.HistoryLeft):
 				m.historyScroll = 0

@@ -424,6 +424,63 @@ func TestTodayDelegate_RendersDelayedTaskInRed(t *testing.T) {
 	}
 }
 
+func TestTodayItemDelegate_SelectedDelayed_KeepsRedTextAndSelectedBackground(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	day := domain.MustParseDay("2026-03-04")
+	s := defaultStyles()
+	d := todayItemDelegate{styles: s, currentDay: day}
+	l := newTaskList(d)
+	l.SetItems([]list.Item{taskItem{task: domain.Task{ID: 1, Title: "late", Status: domain.StatusActive, CreatedDay: day, DueDay: addDays(day, -1)}}})
+	l.Select(0)
+
+	var buf bytes.Buffer
+	d.Render(&buf, l, 0, l.Items()[0])
+	got := buf.String()
+
+	if strings.Contains(got, "> ") {
+		t.Fatalf("expected selected row to not use > marker, got %q", got)
+	}
+
+	if !strings.Contains(got, "late") {
+		t.Fatalf("expected selected delayed row to contain title, got %q", got)
+	}
+	if !strings.Contains(got, "\x1b[7m") {
+		t.Fatalf("expected selected delayed row to use reverse-style selected background, got %q", got)
+	}
+	red := regexp.MustCompile("\\x1b\\[[0-9;]*(31|91|38;5;1|38;5;9)[0-9;]*m")
+	if !red.MatchString(got) {
+		t.Fatalf("expected selected delayed row to keep red foreground, got %q", got)
+	}
+}
+
+func TestSimpleItemDelegate_Selected_UsesSharedSelectedStyle(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	s := defaultStyles()
+	d := simpleItemDelegate{styles: s}
+	l := newTaskList(d)
+	l.SetItems([]list.Item{taskItem{task: domain.Task{ID: 1, Title: "soon", Status: domain.StatusActive}}})
+	l.Select(0)
+
+	var buf bytes.Buffer
+	d.Render(&buf, l, 0, l.Items()[0])
+	got := buf.String()
+
+	if strings.Contains(got, "> ") {
+		t.Fatalf("expected selected row to not use > marker, got %q", got)
+	}
+
+	if !strings.Contains(got, "soon") {
+		t.Fatalf("expected selected row to contain title, got %q", got)
+	}
+	if !strings.Contains(got, "\x1b[7m") {
+		t.Fatalf("expected selected row to use reverse-style selected treatment, got %q", got)
+	}
+}
+
 func TestModel_View_ShowsSelectedRowWithDistinctHighlight(t *testing.T) {
 	orig := tickEvery
 	tickEvery = 0
@@ -446,10 +503,9 @@ func TestModel_View_ShowsSelectedRowWithDistinctHighlight(t *testing.T) {
 
 	out := m.View()
 
-	// Selected row should use a calm background highlight.
-	bg := regexp.MustCompile("\\x1b\\[[0-9;]*48;[0-9;]*m")
-	if !bg.MatchString(out) {
-		t.Fatalf("expected View to include ANSI background highlight for selected row, got: %q", out)
+	// Selected row should use the shared reverse selection treatment.
+	if !strings.Contains(out, "\x1b[7m") {
+		t.Fatalf("expected View to include reverse-video highlight for selected row, got: %q", out)
 	}
 }
 
@@ -503,17 +559,23 @@ func TestModel_View_RendersThreeZonesAndFooterHelp(t *testing.T) {
 	if len(lines) == 0 {
 		t.Fatalf("expected View to return at least 1 line")
 	}
-	if !strings.Contains(lines[0], "[tick]") {
-		t.Fatalf("expected first line to contain [tick], got %q", lines[0])
+	if !strings.Contains(lines[0], appLogo) {
+		t.Fatalf("expected first line to contain %q, got %q", appLogo, lines[0])
 	}
 	if strings.Contains(lines[0], "tuitodo") {
 		t.Fatalf("expected header to not contain old app name, got %q", lines[0])
 	}
-	if !strings.Contains(lines[0], "{Today}") {
-		t.Fatalf("expected active tab marker on Today, got %q", lines[0])
+	if !strings.Contains(lines[0], "tick") {
+		t.Fatalf("expected header to contain tick wordmark, got %q", lines[0])
 	}
 	if strings.Contains(lines[0], "{Upcoming}") || strings.Contains(lines[0], "{History}") {
 		t.Fatalf("expected only active tab to use marker, got %q", lines[0])
+	}
+	if !strings.Contains(lines[0], "[Today]") {
+		t.Fatalf("expected active tab to use visible selected-label fallback, got %q", lines[0])
+	}
+	if strings.Contains(lines[0], "[Upcoming]") || strings.Contains(lines[0], "[History]") {
+		t.Fatalf("expected only active tab to use selected-label fallback, got %q", lines[0])
 	}
 
 	// Separators are inset by two spaces on both left and right.
@@ -536,6 +598,31 @@ func TestModel_View_RendersThreeZonesAndFooterHelp(t *testing.T) {
 	}
 }
 
+func TestModel_View_Header_UsesReverseSelectedTabAndStyledTickWordmark(t *testing.T) {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	day := domain.MustParseDay("2026-03-04")
+	m := NewWithDeps(newFakeApp(day, nil), fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	um, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = um.(Model)
+
+	out := m.View()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if !strings.Contains(lines[0], "tick") {
+		t.Fatalf("expected tick wordmark in header, got %q", lines[0])
+	}
+	if !strings.Contains(lines[0], "\x1b[1;") && !strings.Contains(lines[0], "\x1b[1m") {
+		t.Fatalf("expected bold styling on tick wordmark, got %q", lines[0])
+	}
+	if !strings.Contains(lines[0], "\x1b[1;3m") && !strings.Contains(lines[0], "\x1b[3;") && !strings.Contains(lines[0], "\x1b[3m") {
+		t.Fatalf("expected italic styling on tick wordmark, got %q", lines[0])
+	}
+	if strings.Contains(lines[0], "{Today}") || strings.Contains(lines[0], "{Upcoming}") || strings.Contains(lines[0], "{History}") {
+		t.Fatalf("expected no brace-selected tabs, got %q", lines[0])
+	}
+}
+
 func TestModel_View_UsesFixedZoneLinePositions_80x24(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.Ascii)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
@@ -551,15 +638,15 @@ func TestModel_View_UsesFixedZoneLinePositions_80x24(t *testing.T) {
 
 	// Simulate sheet rendering producing multi-line header content (e.g. wrapping).
 	m.styles.Tab = m.styles.Tab.Width(1)
-	m.styles.TabOn = m.styles.TabOn.Width(1)
+	m.styles.Reverse = m.styles.Reverse.Width(1)
 
 	out := m.View()
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 	if len(lines) != h {
 		t.Fatalf("expected View to return exactly %d lines, got %d", h, len(lines))
 	}
-	if !strings.Contains(lines[0], "[tick]") {
-		t.Fatalf("expected header at line 1 to contain [tick], got %q", lines[0])
+	if !strings.Contains(lines[0], appLogo) {
+		t.Fatalf("expected header at line 1 to contain %q, got %q", appLogo, lines[0])
 	}
 
 	sep := separatorLine(w)

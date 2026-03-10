@@ -27,15 +27,15 @@ Today:
 
 - `a` add
 - `e` edit selected task title
-- `delete` or `backspace` delete selected task
+- `d` delete selected task
 - `x` done
-- `d` abandon
+- `b` abandon
 - `p` postpone
 
 Upcoming:
 
 - `e` edit selected task title
-- `delete` or `backspace` delete selected task
+- `d` delete selected task
 
 History:
 

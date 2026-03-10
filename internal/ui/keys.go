@@ -33,16 +33,16 @@ func defaultKeyMap() keyMap {
 			key.WithHelp("e", "edit"),
 		),
 		Delete: key.NewBinding(
-			key.WithKeys("delete"),
-			key.WithHelp("del", "delete"),
+			key.WithKeys("d", "delete"),
+			key.WithHelp("d", "delete"),
 		),
 		Done: key.NewBinding(
 			key.WithKeys("x"),
 			key.WithHelp("x", "done"),
 		),
 		Abandon: key.NewBinding(
-			key.WithKeys("d"),
-			key.WithHelp("d", "abandon"),
+			key.WithKeys("b"),
+			key.WithHelp("b", "abandon"),
 		),
 		Postpone: key.NewBinding(
 			key.WithKeys("p"),

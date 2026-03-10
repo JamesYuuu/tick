@@ -239,7 +239,7 @@ func TestModel_TodayActions_Table(t *testing.T) {
 		wantUpcoming  int
 	}{
 		{name: "done", key: keyRune('x'), id: 1, wantDone: []int64{1}},
-		{name: "abandon", key: keyRune('d'), id: 2, wantAbandoned: []int64{2}},
+		{name: "abandon", key: keyRune('b'), id: 2, wantAbandoned: []int64{2}},
 		{name: "postpone", key: keyRune('p'), id: 3, wantPostponed: []int64{3}, wantUpcoming: 1},
 	}
 
@@ -392,7 +392,7 @@ func TestModel_Upcoming_DeleteOpensDeleteModal(t *testing.T) {
 	m = um.(Model)
 	m = applyCmd(m, cmd)
 
-	um, _ = m.Update(tea.KeyMsg{Type: tea.KeyDelete})
+	um, _ = m.Update(keyRune('d'))
 	m = um.(Model)
 
 	if m.modal.kind != modalKindDelete {
@@ -695,7 +695,7 @@ func TestModel_DeleteModal_YConfirmsDelete(t *testing.T) {
 	m = applyCmd(m, cmd)
 	upcomingCallsBefore := a.upcomingCalls
 
-	um, _ = m.Update(tea.KeyMsg{Type: tea.KeyDelete})
+	um, _ = m.Update(keyRune('d'))
 	m = um.(Model)
 	um, cmd = m.Update(keyRune('y'))
 	m = um.(Model)
@@ -737,7 +737,7 @@ func TestModel_DeleteModal_NCancels(t *testing.T) {
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
 	m = applyCmd(m, m.Init())
 
-	um, _ := m.Update(tea.KeyMsg{Type: tea.KeyDelete})
+	um, _ := m.Update(keyRune('d'))
 	m = um.(Model)
 	um, cmd := m.Update(keyRune('n'))
 	m = um.(Model)
@@ -766,7 +766,7 @@ func TestModel_DeleteModal_EscCancels(t *testing.T) {
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
 	m = applyCmd(m, m.Init())
 
-	um, _ := m.Update(tea.KeyMsg{Type: tea.KeyDelete})
+	um, _ := m.Update(keyRune('d'))
 	m = um.(Model)
 	um, cmd := m.Update(keyEsc())
 	m = um.(Model)
@@ -841,7 +841,7 @@ func TestModel_View_RendersDeleteModalCopy(t *testing.T) {
 	m = um.(Model)
 	m = applyCmd(m, m.Init())
 
-	um, _ = m.Update(tea.KeyMsg{Type: tea.KeyDelete})
+	um, _ = m.Update(keyRune('d'))
 	m = um.(Model)
 
 	out := m.View()
@@ -860,7 +860,7 @@ func TestModel_Help_IncludesEditDeleteKeys(t *testing.T) {
 	m := NewWithDeps(newFakeApp(current, nil), fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
 
 	todayHelp := m.help()
-	for _, want := range []string{"e:Edit", "del:Delete"} {
+	for _, want := range []string{"e:Edit", "d:Delete"} {
 		if !strings.Contains(todayHelp, strings.ToLower(want)) {
 			t.Fatalf("expected today help to include %q, got %q", want, todayHelp)
 		}
@@ -868,7 +868,7 @@ func TestModel_Help_IncludesEditDeleteKeys(t *testing.T) {
 
 	m.view = viewUpcoming
 	upcomingHelp := m.help()
-	for _, want := range []string{"e:Edit", "del:Delete"} {
+	for _, want := range []string{"e:Edit", "d:Delete"} {
 		if !strings.Contains(upcomingHelp, strings.ToLower(want)) {
 			t.Fatalf("expected upcoming help to include %q, got %q", want, upcomingHelp)
 		}
@@ -938,14 +938,14 @@ func TestModel_Help_UsesTwoGroupedLines(t *testing.T) {
 		{
 			name:        "today",
 			view:        viewToday,
-			wantLine1:   []string{"a:add", "e:edit", "del:delete", "x:done", "d:abandon", "p:postpone"},
+			wantLine1:   []string{"a:add", "e:edit", "d:delete", "x:done", "b:abandon", "p:postpone"},
 			wantLine2:   []string{"tab:next", "q:quit"},
 			forbidLine1: []string{"tab:next", "q:quit"},
 		},
 		{
 			name:        "upcoming",
 			view:        viewUpcoming,
-			wantLine1:   []string{"e:edit", "del:delete"},
+			wantLine1:   []string{"e:edit", "d:delete"},
 			wantLine2:   []string{"tab:next", "q:quit"},
 			forbidLine1: []string{"tab:next", "q:quit"},
 		},
@@ -1011,8 +1011,8 @@ func TestModel_Help_TodayActionsRightAlignCompletionGroup(t *testing.T) {
 	}
 
 	line1 := lines[len(lines)-2]
-	left := "a:add  e:edit  del:delete"
-	right := "x:done  d:abandon  p:postpone"
+	left := "a:add  e:edit  d:delete"
+	right := "x:done  b:abandon  p:postpone"
 
 	if !strings.HasPrefix(line1, left) {
 		t.Fatalf("expected first footer line to start with %q, got %q", left, line1)
@@ -1144,7 +1144,7 @@ func TestModel_TaskModal_IgnoresDuplicateSubmitWhileInFlight(t *testing.T) {
 		m := NewWithDeps(a, baseClock, time.UTC)
 		m = applyCmd(m, m.Init())
 
-		um, _ := m.Update(tea.KeyMsg{Type: tea.KeyDelete})
+		um, _ := m.Update(keyRune('d'))
 		m = um.(Model)
 
 		um, firstCmd := m.Update(keyRune('y'))
@@ -1626,7 +1626,7 @@ func TestModel_View_UsesTwoLineFooterAcrossViews(t *testing.T) {
 		{
 			name:      "upcoming",
 			advance:   1,
-			wantLine1: []string{"e:edit", "del:delete"},
+			wantLine1: []string{"e:edit", "d:delete"},
 			wantLine2: []string{"tab:next", "q:quit"},
 		},
 		{
@@ -1821,8 +1821,8 @@ func TestModel_View_Footer_TodayNonEmptyStatus_KeepsCompletionGroupRightAligned(
 	}
 
 	line1 := lines[len(lines)-2]
-	leftPrefix := "done: boom  a:add  e:edit  del:delete"
-	right := "x:done  d:abandon  p:postpone"
+	leftPrefix := "done: boom  a:add  e:edit  d:delete"
+	right := "x:done  b:abandon  p:postpone"
 
 	if !strings.HasPrefix(line1, leftPrefix) {
 		t.Fatalf("expected first footer line to start with %q, got %q", leftPrefix, line1)
@@ -1870,11 +1870,11 @@ func TestModel_View_Footer_TodayNarrowWidth_DropsCompletionGroupBeforeClipping(t
 	}
 
 	line1 := lines[len(lines)-2]
-	want := "a:add  e:edit  del:delete"
+	want := "a:add  e:edit  d:delete"
 	if line1 != want {
 		t.Fatalf("expected narrow Today footer line to intentionally keep only left group %q, got %q", want, line1)
 	}
-	if strings.Contains(line1, "x:done") || strings.Contains(line1, "d:abandon") || strings.Contains(line1, "p:postpone") {
+	if strings.Contains(line1, "x:done") || strings.Contains(line1, "b:abandon") || strings.Contains(line1, "p:postpone") {
 		t.Fatalf("expected narrow Today footer line to omit completion group entirely, got %q", line1)
 	}
 }

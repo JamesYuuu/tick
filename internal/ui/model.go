@@ -192,6 +192,11 @@ type refreshMsg struct {
 	err      error
 }
 
+type activeListsResult struct {
+	today    []domain.Task
+	upcoming []domain.Task
+}
+
 type modalSubmitMsg struct {
 	today    []domain.Task
 	upcoming []domain.Task
@@ -206,18 +211,26 @@ type deleteModalSubmitMsg struct {
 	close bool
 }
 
+func (m Model) loadActiveLists(ctx context.Context) (activeListsResult, error) {
+	today, err := m.app.Today(ctx)
+	if err != nil {
+		return activeListsResult{}, fmt.Errorf("today: %w", err)
+	}
+	upcoming, err := m.app.Upcoming(ctx)
+	if err != nil {
+		return activeListsResult{}, fmt.Errorf("upcoming: %w", err)
+	}
+	return activeListsResult{today: today, upcoming: upcoming}, nil
+}
+
 func (m Model) cmdRefreshActive() tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
-		today, err := m.app.Today(ctx)
+		lists, err := m.loadActiveLists(ctx)
 		if err != nil {
-			return refreshMsg{err: fmt.Errorf("today: %w", err)}
+			return refreshMsg{err: err}
 		}
-		up, err := m.app.Upcoming(ctx)
-		if err != nil {
-			return refreshMsg{err: fmt.Errorf("upcoming: %w", err)}
-		}
-		return refreshMsg{today: today, upcoming: up}
+		return refreshMsg{today: lists.today, upcoming: lists.upcoming}
 	}
 }
 
@@ -227,15 +240,11 @@ func (m Model) cmdActThenRefresh(prefix string, act func(ctx context.Context) er
 		if err := act(ctx); err != nil {
 			return refreshMsg{err: fmt.Errorf("%s: %w", prefix, err)}
 		}
-		today, err := m.app.Today(ctx)
+		lists, err := m.loadActiveLists(ctx)
 		if err != nil {
-			return refreshMsg{err: fmt.Errorf("today: %w", err)}
+			return refreshMsg{err: err}
 		}
-		up, err := m.app.Upcoming(ctx)
-		if err != nil {
-			return refreshMsg{err: fmt.Errorf("upcoming: %w", err)}
-		}
-		return refreshMsg{today: today, upcoming: up}
+		return refreshMsg{today: lists.today, upcoming: lists.upcoming}
 	}
 }
 
@@ -258,15 +267,11 @@ func (m Model) cmdSubmitModal() tea.Cmd {
 			return nil
 		}
 
-		today, err := m.app.Today(ctx)
+		lists, err := m.loadActiveLists(ctx)
 		if err != nil {
-			return modalSubmitMsg{err: fmt.Errorf("today: %w", err), close: true}
+			return modalSubmitMsg{err: err, close: true}
 		}
-		up, err := m.app.Upcoming(ctx)
-		if err != nil {
-			return modalSubmitMsg{err: fmt.Errorf("upcoming: %w", err), close: true}
-		}
-		return modalSubmitMsg{today: today, upcoming: up, close: true}
+		return modalSubmitMsg{today: lists.today, upcoming: lists.upcoming, close: true}
 	}
 }
 
@@ -376,6 +381,64 @@ func (m *Model) closeModal() {
 	m.addInput.SetValue("")
 }
 
+func modalBlocksKey(keys keyMap, msg tea.KeyMsg) bool {
+	return key.Matches(msg, keys.Done) ||
+		key.Matches(msg, keys.Abandon) ||
+		key.Matches(msg, keys.Postpone) ||
+		key.Matches(msg, keys.Edit) ||
+		key.Matches(msg, keys.Delete) ||
+		key.Matches(msg, keys.Add) ||
+		key.Matches(msg, keys.NextView)
+}
+
+func (m Model) handleModalKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
+	if m.modal.kind == modalKindNone {
+		return m, nil, false
+	}
+
+	if msg.Type == tea.KeyEsc {
+		m.closeModal()
+		return m, nil, true
+	}
+
+	switch m.modal.kind {
+	case modalKindAdd, modalKindEdit:
+		if msg.Type == tea.KeyEnter {
+			if m.modal.submitting {
+				return m, nil, true
+			}
+			if strings.TrimSpace(m.addInput.Value()) == "" {
+				return m, nil, true
+			}
+			m.modal.submitting = true
+			return m, m.cmdSubmitModal(), true
+		}
+		var cmd tea.Cmd
+		m.addInput, cmd = m.addInput.Update(msg)
+		return m, cmd, true
+	case modalKindDelete:
+		if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
+			switch strings.ToLower(string(msg.Runes[0])) {
+			case "y":
+				if m.modal.submitting {
+					return m, nil, true
+				}
+				m.modal.submitting = true
+				return m, m.cmdConfirmDelete(), true
+			case "n":
+				m.closeModal()
+				return m, nil, true
+			}
+		}
+		if modalBlocksKey(m.keys, msg) {
+			return m, nil, true
+		}
+		return m, nil, true
+	default:
+		return m, nil, true
+	}
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -452,50 +515,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(m.cmdRefreshActive(), m.tickCmd())
 	case tea.KeyMsg:
-		if m.modal.kind != modalKindNone {
-			if msg.Type == tea.KeyEsc {
-				m.closeModal()
-				return m, nil
-			}
-			switch m.modal.kind {
-			case modalKindAdd, modalKindEdit:
-				if msg.Type == tea.KeyEnter {
-					if m.modal.submitting {
-						return m, nil
-					}
-					if strings.TrimSpace(m.addInput.Value()) == "" {
-						return m, nil
-					}
-					m.modal.submitting = true
-					return m, m.cmdSubmitModal()
-				}
-				var cmd tea.Cmd
-				m.addInput, cmd = m.addInput.Update(msg)
-				return m, cmd
-			case modalKindDelete:
-				if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
-					switch strings.ToLower(string(msg.Runes[0])) {
-					case "y":
-						if m.modal.submitting {
-							return m, nil
-						}
-						m.modal.submitting = true
-						return m, m.cmdConfirmDelete()
-					case "n":
-						m.closeModal()
-						return m, nil
-					}
-				}
-				if key.Matches(msg, m.keys.Done) || key.Matches(msg, m.keys.Abandon) || key.Matches(msg, m.keys.Postpone) || key.Matches(msg, m.keys.Edit) || key.Matches(msg, m.keys.Delete) || key.Matches(msg, m.keys.Add) || key.Matches(msg, m.keys.NextView) {
-					return m, nil
-				}
-				return m, nil
-			default:
-				if key.Matches(msg, m.keys.Done) || key.Matches(msg, m.keys.Abandon) || key.Matches(msg, m.keys.Postpone) || key.Matches(msg, m.keys.Edit) || key.Matches(msg, m.keys.Delete) || key.Matches(msg, m.keys.Add) || key.Matches(msg, m.keys.NextView) {
-					return m, nil
-				}
-				return m, nil
-			}
+		if next, cmd, handled := m.handleModalKey(msg); handled {
+			return next, cmd
 		}
 
 		switch {

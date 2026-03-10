@@ -2,6 +2,8 @@ package ui
 
 import (
 	"context"
+	"reflect"
+	"testing"
 	"time"
 
 	"github.com/JamesYuuu/tick/internal/app"
@@ -62,6 +64,23 @@ type fakeApp struct {
 type editedTaskCall struct {
 	id    int64
 	title string
+}
+
+type inputModalCase struct {
+	name                   string
+	open                   func(*Model, domain.Task)
+	seed                   []domain.Task
+	input                  string
+	key                    tea.KeyMsg
+	wantOpen               bool
+	wantAdded              []string
+	wantEdit               []editedTaskCall
+	wantCmd                bool
+	wantInput              string
+	wantTodayLen           int
+	wantSelectedTitle      string
+	wantTodayCallsDelta    int
+	wantUpcomingCallsDelta int
 }
 
 func newFakeApp(currentDay domain.Day, tasks []domain.Task) *fakeApp {
@@ -312,4 +331,65 @@ func keyEnter() tea.KeyMsg {
 
 func keyEsc() tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyEsc}
+}
+
+func runModalCase(t *testing.T, tc inputModalCase) {
+	t.Helper()
+
+	current := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(current, tc.seed)
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	m = applyCmd(m, m.Init())
+
+	todayCallsBefore := a.todayCalls
+	upcomingCallsBefore := a.upcomingCalls
+
+	var task domain.Task
+	if len(tc.seed) > 0 {
+		task = tc.seed[0]
+	}
+	tc.open(&m, task)
+	m.addInput.SetValue(tc.input)
+
+	um, cmd := m.Update(tc.key)
+	m = um.(Model)
+
+	if got := cmd != nil; got != tc.wantCmd {
+		t.Fatalf("command presence mismatch: got %v want %v", got, tc.wantCmd)
+	}
+	if cmd != nil {
+		um, _ = m.Update(cmd())
+		m = um.(Model)
+	}
+
+	if got := m.modal.kind != modalKindNone; got != tc.wantOpen {
+		t.Fatalf("modal open mismatch: got %v want %v", got, tc.wantOpen)
+	}
+	if !reflect.DeepEqual(a.addedTitles, tc.wantAdded) {
+		t.Fatalf("added titles mismatch: got %#v want %#v", a.addedTitles, tc.wantAdded)
+	}
+	if !reflect.DeepEqual(a.editedTasks, tc.wantEdit) {
+		t.Fatalf("edited tasks mismatch: got %#v want %#v", a.editedTasks, tc.wantEdit)
+	}
+	if m.addInput.Value() != tc.wantInput {
+		t.Fatalf("input value mismatch: got %q want %q", m.addInput.Value(), tc.wantInput)
+	}
+	if tc.wantTodayLen >= 0 && listLen(m.todayList) != tc.wantTodayLen {
+		t.Fatalf("today list length mismatch: got %d want %d", listLen(m.todayList), tc.wantTodayLen)
+	}
+	if tc.wantSelectedTitle != "" {
+		selected, ok := m.todayList.SelectedItem().(taskItem)
+		if !ok {
+			t.Fatalf("expected selected today item")
+		}
+		if selected.task.Title != tc.wantSelectedTitle {
+			t.Fatalf("selected title mismatch: got %q want %q", selected.task.Title, tc.wantSelectedTitle)
+		}
+	}
+	if a.todayCalls != todayCallsBefore+tc.wantTodayCallsDelta {
+		t.Fatalf("today refresh calls mismatch: got before=%d after=%d want delta=%d", todayCallsBefore, a.todayCalls, tc.wantTodayCallsDelta)
+	}
+	if a.upcomingCalls != upcomingCallsBefore+tc.wantUpcomingCallsDelta {
+		t.Fatalf("upcoming refresh calls mismatch: got before=%d after=%d want delta=%d", upcomingCallsBefore, a.upcomingCalls, tc.wantUpcomingCallsDelta)
+	}
 }

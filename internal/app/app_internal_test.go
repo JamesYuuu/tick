@@ -88,6 +88,22 @@ func TestApp_Stats_WrapsStoreError(t *testing.T) {
 	}
 }
 
+func TestOutcomeRatios_AssignsFromStoreOutcomeRatios(t *testing.T) {
+	storeOut := store.OutcomeRatios{
+		TotalDone:             2,
+		DelayedDone:           1,
+		TotalAbandoned:        3,
+		DelayedAbandoned:      1,
+		DoneDelayedRatio:      0.5,
+		AbandonedDelayedRatio: 1.0 / 3.0,
+	}
+
+	var got OutcomeRatios = storeOut
+	if got.TotalDone != storeOut.TotalDone || got.DoneDelayedRatio != storeOut.DoneDelayedRatio {
+		t.Fatalf("unexpected mapped output: %+v", got)
+	}
+}
+
 func TestApp_EditTitle_CallsStore(t *testing.T) {
 	var (
 		called   bool
@@ -155,26 +171,6 @@ func TestApp_Delete_CallsStore(t *testing.T) {
 	}
 	if gotID != 7 {
 		t.Fatalf("expected id 7, got %d", gotID)
-	}
-}
-
-func TestMapOutcomeRatios_MapsAllFields(t *testing.T) {
-	in := store.OutcomeRatios{
-		TotalDone:             9,
-		DelayedDone:           2,
-		TotalAbandoned:        3,
-		DelayedAbandoned:      1,
-		DoneDelayedRatio:      2.0 / 9.0,
-		AbandonedDelayedRatio: 1.0 / 3.0,
-	}
-
-	got := mapOutcomeRatios(in)
-
-	if got.TotalDone != in.TotalDone || got.DelayedDone != in.DelayedDone || got.TotalAbandoned != in.TotalAbandoned || got.DelayedAbandoned != in.DelayedAbandoned {
-		t.Fatalf("unexpected mapped totals: %+v", got)
-	}
-	if got.DoneDelayedRatio != in.DoneDelayedRatio || got.AbandonedDelayedRatio != in.AbandonedDelayedRatio {
-		t.Fatalf("unexpected mapped ratios: %+v", got)
 	}
 }
 

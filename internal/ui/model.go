@@ -453,9 +453,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.cmdRefreshActive(), m.tickCmd())
 	case tea.KeyMsg:
 		if m.modal.kind != modalKindNone {
-			if key.Matches(msg, m.keys.Quit) {
-				return m, tea.Quit
-			}
 			if msg.Type == tea.KeyEsc {
 				m.closeModal()
 				return m, nil
@@ -471,9 +468,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.modal.submitting = true
 					return m, m.cmdSubmitModal()
-				}
-				if key.Matches(msg, m.keys.Done) || key.Matches(msg, m.keys.Abandon) || key.Matches(msg, m.keys.Postpone) || key.Matches(msg, m.keys.Edit) || key.Matches(msg, m.keys.Delete) || key.Matches(msg, m.keys.Add) || key.Matches(msg, m.keys.NextView) {
-					return m, nil
 				}
 				var cmd tea.Cmd
 				m.addInput, cmd = m.addInput.Update(msg)

@@ -550,6 +550,32 @@ func TestModel_AddModal_EnterWithEmptyTitleDoesNothing(t *testing.T) {
 	}
 }
 
+func TestModel_AddModal_AllowsBoundRunesAsInput(t *testing.T) {
+	disableTick(t)
+
+	current := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(current, nil)
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	m = applyCmd(m, m.Init())
+
+	um, _ := m.Update(keyRune('a'))
+	m = um.(Model)
+
+	letters := "abdepqx"
+	for _, r := range letters {
+		um, _ = m.Update(keyRune(r))
+		m = um.(Model)
+	}
+
+	if m.addInput.Value() != letters {
+		t.Fatalf("expected add modal to accept bound runes as input %q, got %q", letters, m.addInput.Value())
+	}
+	if m.modal.kind != modalKindAdd {
+		t.Fatalf("expected add modal to remain open, got %v", m.modal.kind)
+	}
+}
+
 func TestModel_EditModal_EnterUpdatesTitle(t *testing.T) {
 	disableTick(t)
 
@@ -1208,13 +1234,13 @@ func TestModel_ModalOpen_SuspendsDoneAction(t *testing.T) {
 	if m.modal.kind != modalKindAdd {
 		t.Fatalf("expected add modal open, got %v", m.modal.kind)
 	}
-	um, cmd := m.Update(keyRune('x'))
+	um, _ = m.Update(keyRune('x'))
 	m = um.(Model)
-	if cmd != nil {
-		t.Fatalf("expected no action command while modal is open")
-	}
 	if len(a.doneIDs) != 0 {
 		t.Fatalf("expected done action suspended while modal is open, got %#v", a.doneIDs)
+	}
+	if m.addInput.Value() != "x" {
+		t.Fatalf("expected key rune to go to modal input, got %q", m.addInput.Value())
 	}
 }
 

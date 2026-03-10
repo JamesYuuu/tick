@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"regexp"
 	"strings"
@@ -225,6 +226,18 @@ func TestModel_Init_LoadsTodayList(t *testing.T) {
 	}
 }
 
+func TestLoadActiveLists_PrefixesUpcomingError(t *testing.T) {
+	day := domain.MustParseDay("2026-03-04")
+	a := newFakeApp(day, nil)
+	a.upcomingErr = errors.New("boom")
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	_, err := m.loadActiveLists(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "upcoming: boom") {
+		t.Fatalf("expected wrapped upcoming error, got %v", err)
+	}
+}
+
 func TestModel_TodayActions_Table(t *testing.T) {
 	disableTick(t)
 
@@ -409,43 +422,110 @@ func TestModel_Upcoming_DeleteOpensDeleteModal(t *testing.T) {
 	}
 }
 
-func TestModel_AddModal_EnterCreatesTask(t *testing.T) {
+func TestModel_DeleteModal_BlockedGlobalKeysStayInModal(t *testing.T) {
 	disableTick(t)
 
 	current := domain.MustParseDay("2026-03-04")
-	a := newFakeApp(current, nil)
+	tests := []struct {
+		name string
+		key  tea.KeyMsg
+	}{
+		{name: "done", key: keyRune('x')},
+		{name: "abandon", key: keyRune('b')},
+		{name: "postpone", key: keyRune('p')},
+		{name: "edit", key: keyRune('e')},
+		{name: "delete", key: keyRune('d')},
+		{name: "add", key: keyRune('a')},
+		{name: "next view", key: keyTab()},
+	}
 
-	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	m = applyCmd(m, m.Init())
-	todayCallsBefore := a.todayCalls
-	upcomingCallsBefore := a.upcomingCalls
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			task := domain.Task{ID: 7, Title: "write tests", Status: domain.StatusActive, CreatedDay: current, DueDay: current}
+			a := newFakeApp(current, []domain.Task{task})
 
-	um, _ := m.Update(keyRune('a'))
-	m = um.(Model)
-	m.addInput.SetValue("new task")
-	um, cmd := m.Update(keyEnter())
-	m = um.(Model)
+			m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+			m = applyCmd(m, m.Init())
 
-	if cmd == nil {
-		t.Fatalf("expected add submit command")
-	}
-	um, _ = m.Update(cmd())
-	m = um.(Model)
+			um, _ := m.Update(keyRune('d'))
+			m = um.(Model)
+			if m.modal.kind != modalKindDelete {
+				t.Fatalf("expected delete modal open before blocked key, got %v", m.modal.kind)
+			}
 
-	if len(a.addedTitles) != 1 || a.addedTitles[0] != "new task" {
-		t.Fatalf("expected add call with title %q, got %#v", "new task", a.addedTitles)
+			um, cmd := m.Update(tc.key)
+			m = um.(Model)
+
+			if cmd != nil {
+				t.Fatalf("expected no command for blocked key %q while delete modal is open", tc.name)
+			}
+			if m.modal.kind != modalKindDelete {
+				t.Fatalf("expected delete modal to stay open for blocked key %q, got %v", tc.name, m.modal.kind)
+			}
+			if m.view != viewToday {
+				t.Fatalf("expected blocked key %q to keep current view, got %v", tc.name, m.view)
+			}
+			if len(a.doneIDs) != 0 || len(a.abandonedIDs) != 0 || len(a.postponedIDs) != 0 || len(a.deletedIDs) != 0 || len(a.addedTitles) != 0 || len(a.editedTasks) != 0 {
+				t.Fatalf("expected blocked key %q to suppress global actions, got done=%#v abandon=%#v postpone=%#v delete=%#v add=%#v edit=%#v", tc.name, a.doneIDs, a.abandonedIDs, a.postponedIDs, a.deletedIDs, a.addedTitles, a.editedTasks)
+			}
+		})
 	}
-	if m.modal.kind != modalKindNone {
-		t.Fatalf("expected add modal to close after submit, got %v", m.modal.kind)
+}
+
+func TestModel_InputModal_Table(t *testing.T) {
+	disableTick(t)
+
+	tests := []inputModalCase{
+		{
+			name:                   "add submit",
+			open:                   func(m *Model, _ domain.Task) { m.openAddModal() },
+			input:                  "new task",
+			key:                    keyEnter(),
+			wantOpen:               false,
+			wantCmd:                true,
+			wantAdded:              []string{"new task"},
+			wantTodayLen:           1,
+			wantTodayCallsDelta:    1,
+			wantUpcomingCallsDelta: 1,
+		},
+		{
+			name:         "add esc",
+			open:         func(m *Model, _ domain.Task) { m.openAddModal() },
+			input:        "ignored",
+			key:          keyEsc(),
+			wantOpen:     false,
+			wantTodayLen: 0,
+		},
+		{
+			name:                   "edit submit",
+			open:                   func(m *Model, task domain.Task) { m.openTaskModal(modalKindEdit, task) },
+			seed:                   []domain.Task{{ID: 1, Title: "old", Status: domain.StatusActive, CreatedDay: domain.MustParseDay("2026-03-04"), DueDay: domain.MustParseDay("2026-03-04")}},
+			input:                  "renamed",
+			key:                    keyEnter(),
+			wantOpen:               false,
+			wantCmd:                true,
+			wantEdit:               []editedTaskCall{{id: 1, title: "renamed"}},
+			wantTodayLen:           1,
+			wantSelectedTitle:      "renamed",
+			wantTodayCallsDelta:    1,
+			wantUpcomingCallsDelta: 1,
+		},
+		{
+			name:              "edit esc",
+			open:              func(m *Model, task domain.Task) { m.openTaskModal(modalKindEdit, task) },
+			seed:              []domain.Task{{ID: 1, Title: "old", Status: domain.StatusActive, CreatedDay: domain.MustParseDay("2026-03-04"), DueDay: domain.MustParseDay("2026-03-04")}},
+			input:             "ignored",
+			key:               keyEsc(),
+			wantOpen:          false,
+			wantTodayLen:      1,
+			wantSelectedTitle: "old",
+		},
 	}
-	if listLen(m.todayList) != 1 {
-		t.Fatalf("expected today list refreshed with new task, got %d items", listLen(m.todayList))
-	}
-	if a.todayCalls != todayCallsBefore+1 {
-		t.Fatalf("expected one refresh today call after add, got before=%d after=%d", todayCallsBefore, a.todayCalls)
-	}
-	if a.upcomingCalls != upcomingCallsBefore+1 {
-		t.Fatalf("expected one refresh upcoming call after add, got before=%d after=%d", upcomingCallsBefore, a.upcomingCalls)
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			runModalCase(t, tc)
+		})
 	}
 }
 
@@ -491,36 +571,6 @@ func TestModel_AddModal_ClosesWhenRefreshFailsAfterSuccessfulAdd(t *testing.T) {
 	}
 	if len(a.addedTitles) != 1 {
 		t.Fatalf("expected no duplicate add after refresh failure, got %#v", a.addedTitles)
-	}
-}
-
-func TestModel_AddModal_EscCancels(t *testing.T) {
-	disableTick(t)
-
-	current := domain.MustParseDay("2026-03-04")
-	a := newFakeApp(current, nil)
-
-	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	m = applyCmd(m, m.Init())
-
-	um, _ := m.Update(keyRune('a'))
-	m = um.(Model)
-	um, _ = m.Update(keyRune('x'))
-	m = um.(Model)
-	um, cmd := m.Update(keyEsc())
-	m = um.(Model)
-
-	if cmd != nil {
-		t.Fatalf("expected no command when canceling add modal")
-	}
-	if len(a.addedTitles) != 0 {
-		t.Fatalf("expected add modal cancel to skip add, got %#v", a.addedTitles)
-	}
-	if m.modal.kind != modalKindNone {
-		t.Fatalf("expected add modal closed after esc, got %v", m.modal.kind)
-	}
-	if m.addInput.Value() != "" {
-		t.Fatalf("expected add input cleared after esc, got %q", m.addInput.Value())
 	}
 }
 
@@ -573,82 +623,6 @@ func TestModel_AddModal_AllowsBoundRunesAsInput(t *testing.T) {
 	}
 	if m.modal.kind != modalKindAdd {
 		t.Fatalf("expected add modal to remain open, got %v", m.modal.kind)
-	}
-}
-
-func TestModel_EditModal_EnterUpdatesTitle(t *testing.T) {
-	disableTick(t)
-
-	current := domain.MustParseDay("2026-03-04")
-	task := domain.Task{ID: 7, Title: "write tests", Status: domain.StatusActive, CreatedDay: current, DueDay: current}
-	a := newFakeApp(current, []domain.Task{task})
-
-	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	m = applyCmd(m, m.Init())
-	todayCallsBefore := a.todayCalls
-	upcomingCallsBefore := a.upcomingCalls
-
-	um, _ := m.Update(keyRune('e'))
-	m = um.(Model)
-	m.addInput.SetValue("beta")
-	um, cmd := m.Update(keyEnter())
-	m = um.(Model)
-
-	if cmd == nil {
-		t.Fatalf("expected edit submit command")
-	}
-	um, _ = m.Update(cmd())
-	m = um.(Model)
-
-	if len(a.editedTasks) != 1 || a.editedTasks[0] != (editedTaskCall{id: task.ID, title: "beta"}) {
-		t.Fatalf("expected edit call %#v, got %#v", editedTaskCall{id: task.ID, title: "beta"}, a.editedTasks)
-	}
-	if m.modal.kind != modalKindNone {
-		t.Fatalf("expected edit modal to close after submit, got %v", m.modal.kind)
-	}
-	selected, ok := m.todayList.SelectedItem().(taskItem)
-	if !ok {
-		t.Fatalf("expected selected today item after edit")
-	}
-	if selected.task.Title != "beta" {
-		t.Fatalf("expected refreshed title %q, got %q", "beta", selected.task.Title)
-	}
-	if a.todayCalls != todayCallsBefore+1 {
-		t.Fatalf("expected one refresh today call after edit, got before=%d after=%d", todayCallsBefore, a.todayCalls)
-	}
-	if a.upcomingCalls != upcomingCallsBefore+1 {
-		t.Fatalf("expected one refresh upcoming call after edit, got before=%d after=%d", upcomingCallsBefore, a.upcomingCalls)
-	}
-}
-
-func TestModel_EditModal_EscCancels(t *testing.T) {
-	disableTick(t)
-
-	current := domain.MustParseDay("2026-03-04")
-	task := domain.Task{ID: 7, Title: "write tests", Status: domain.StatusActive, CreatedDay: current, DueDay: current}
-	a := newFakeApp(current, []domain.Task{task})
-
-	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	m = applyCmd(m, m.Init())
-
-	um, _ := m.Update(keyRune('e'))
-	m = um.(Model)
-	um, _ = m.Update(keyRune('x'))
-	m = um.(Model)
-	um, cmd := m.Update(keyEsc())
-	m = um.(Model)
-
-	if cmd != nil {
-		t.Fatalf("expected no command when canceling edit modal")
-	}
-	if len(a.editedTasks) != 0 {
-		t.Fatalf("expected edit modal cancel to skip edit, got %#v", a.editedTasks)
-	}
-	if m.modal.kind != modalKindNone {
-		t.Fatalf("expected edit modal closed after esc, got %v", m.modal.kind)
-	}
-	if m.addInput.Value() != "" {
-		t.Fatalf("expected edit input cleared after esc, got %q", m.addInput.Value())
 	}
 }
 

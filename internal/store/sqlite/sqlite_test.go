@@ -129,15 +129,7 @@ func TestSQLiteStore_Postpone_NotFound_WrapsNoRows(t *testing.T) {
 	})
 
 	id := int64(12345)
-	if err := s.Postpone(ctx, id, domain.MustParseDay("2026-03-12")); err == nil {
-		t.Fatalf("expected error")
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("expected errors.Is(err, sql.ErrNoRows) true, got %v", err)
-	} else if err == sql.ErrNoRows {
-		t.Fatalf("expected wrapped error, got %v", err)
-	} else if !strings.Contains(err.Error(), "postpone") {
-		t.Fatalf("expected context in error, got %v", err)
-	}
+	assertWrappedNoRows(t, s.Postpone(ctx, id, domain.MustParseDay("2026-03-12")), "postpone")
 }
 
 func TestSQLiteStore_Postpone_NotActive_ReturnsInvalidTransition(t *testing.T) {
@@ -253,32 +245,6 @@ func TestSQLiteStore_DeleteTask_ActiveTask(t *testing.T) {
 	}
 }
 
-func TestSQLiteStore_UpdateTitle_NotFound_WrapsNoRows(t *testing.T) {
-	ctx := context.Background()
-
-	s, err := sqlite.OpenInMemory()
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = s.Close()
-	})
-
-	err = s.UpdateTitle(ctx, 12345, "new title")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("expected errors.Is(err, sql.ErrNoRows) true, got %v", err)
-	}
-	if err == sql.ErrNoRows {
-		t.Fatalf("expected wrapped error, got %v", err)
-	}
-	if !strings.Contains(err.Error(), "update title") {
-		t.Fatalf("expected context in error, got %v", err)
-	}
-}
-
 func TestSQLiteStore_UpdateTitle_DoneTask_WrapsNoRows(t *testing.T) {
 	ctx := context.Background()
 
@@ -299,45 +265,7 @@ func TestSQLiteStore_UpdateTitle_DoneTask_WrapsNoRows(t *testing.T) {
 		t.Fatalf("mark done: %v", err)
 	}
 
-	err = s.UpdateTitle(ctx, task.ID, "new title")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("expected errors.Is(err, sql.ErrNoRows) true, got %v", err)
-	}
-	if err == sql.ErrNoRows {
-		t.Fatalf("expected wrapped error, got %v", err)
-	}
-	if !strings.Contains(err.Error(), "update title") {
-		t.Fatalf("expected context in error, got %v", err)
-	}
-}
-
-func TestSQLiteStore_DeleteTask_NotFound_WrapsNoRows(t *testing.T) {
-	ctx := context.Background()
-
-	s, err := sqlite.OpenInMemory()
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = s.Close()
-	})
-
-	err = s.DeleteTask(ctx, 12345)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("expected errors.Is(err, sql.ErrNoRows) true, got %v", err)
-	}
-	if err == sql.ErrNoRows {
-		t.Fatalf("expected wrapped error, got %v", err)
-	}
-	if !strings.Contains(err.Error(), "delete task") {
-		t.Fatalf("expected context in error, got %v", err)
-	}
+	assertWrappedNoRows(t, s.UpdateTitle(ctx, task.ID, "new title"), "update title")
 }
 
 func TestSQLiteStore_DeleteTask_InactiveTask_WrapsNoRows(t *testing.T) {
@@ -380,19 +308,39 @@ func TestSQLiteStore_DeleteTask_InactiveTask_WrapsNoRows(t *testing.T) {
 				t.Fatalf("mark inactive: %v", err)
 			}
 
-			err = s.DeleteTask(ctx, task.ID)
-			if err == nil {
-				t.Fatal("expected error")
-			}
-			if !errors.Is(err, sql.ErrNoRows) {
-				t.Fatalf("expected errors.Is(err, sql.ErrNoRows) true, got %v", err)
-			}
-			if err == sql.ErrNoRows {
-				t.Fatalf("expected wrapped error, got %v", err)
-			}
-			if !strings.Contains(err.Error(), "delete task") {
-				t.Fatalf("expected context in error, got %v", err)
-			}
+			assertWrappedNoRows(t, s.DeleteTask(ctx, task.ID), "delete task")
+		})
+	}
+}
+
+func TestSQLiteStore_ActiveMutationNotFound_Table(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name string
+		call func(*sqlite.SQLiteStore) error
+		want string
+	}{
+		{
+			name: "update title",
+			call: func(s *sqlite.SQLiteStore) error { return s.UpdateTitle(ctx, 12345, "new title") },
+			want: "update title",
+		},
+		{
+			name: "delete task",
+			call: func(s *sqlite.SQLiteStore) error { return s.DeleteTask(ctx, 12345) },
+			want: "delete task",
+		},
+	}
+
+	s, err := sqlite.OpenInMemory()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assertWrappedNoRows(t, tc.call(s), tc.want)
 		})
 	}
 }
@@ -485,19 +433,23 @@ func TestSQLiteStore_MarkStatus_NotFound_WrapsNoRows(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.call(s, ctx)
-			if err == nil {
-				t.Fatal("expected error")
-			}
-			if !errors.Is(err, sql.ErrNoRows) {
-				t.Fatalf("expected errors.Is(err, sql.ErrNoRows) true, got %v", err)
-			}
-			if err == sql.ErrNoRows {
-				t.Fatalf("expected wrapped error, got %v", err)
-			}
-			if !strings.Contains(err.Error(), tc.wantSub) {
-				t.Fatalf("expected context substring %q in error, got %v", tc.wantSub, err)
-			}
+			assertWrappedNoRows(t, tc.call(s, ctx), tc.wantSub)
 		})
+	}
+}
+
+func assertWrappedNoRows(t *testing.T, err error, wantSub string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected errors.Is(err, sql.ErrNoRows) true, got %v", err)
+	}
+	if err == sql.ErrNoRows {
+		t.Fatalf("expected wrapped error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), wantSub) {
+		t.Fatalf("expected context substring %q in error, got %v", wantSub, err)
 	}
 }

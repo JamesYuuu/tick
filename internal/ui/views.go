@@ -27,47 +27,55 @@ func renderCenteredEmpty(m Model, msg string) string {
 	return centerInBox(msg, g.innerW, g.innerH)
 }
 
-func renderHistoryBody(m Model) string {
+type historyLayout struct {
+	innerW     int
+	dateBlock  string
+	divider    string
+	statsBlock string
+	detailH    int
+}
+
+func calcHistoryLayout(m Model) historyLayout {
 	innerW := sheetInnerWidth(m.width)
 	if innerW <= 0 {
-		return ""
+		return historyLayout{}
 	}
 
 	dateBlock := renderHistoryDateTable(m, innerW)
 	statsBlock := renderHistoryStats(m)
-	// Divider aligns to the sheet frame.
 	divider := ""
 	if innerW > 2 {
-		// History internal divider: keep right edge short by 2 cells to avoid
-		// terminal wrap artifacts (e.g., kitty) while matching the sheet frame.
 		divider = strings.Repeat("-", innerW-2)
 	}
 
-	workspaceH := m.height - (headerHeight + separatorHeights + footerHeight)
-	if workspaceH < 0 {
-		workspaceH = 0
-	}
-	innerH := workspaceH - sheetVertMargin
-	if innerH < 0 {
-		innerH = 0
-	}
-	// Date selector is N lines (table or 1-line fallback), then a blank line,
-	// then a full-width divider, then the details viewport and bottom stats.
+	innerH := calcLayoutMetrics(m.width, m.height).innerH
 	selectorH := linesCount(dateBlock)
-	sepH := 2
-	statsH := historyStatsBlockHeight(m)
-	detailH := innerH - (selectorH + sepH + statsH)
+	detailH := innerH - (selectorH + 2 + historyStatsBlockHeight(m))
 	if detailH < 0 {
 		detailH = 0
 	}
 
-	details := renderHistoryDetailsViewport(m, detailH)
+	return historyLayout{
+		innerW:     innerW,
+		dateBlock:  dateBlock,
+		divider:    divider,
+		statsBlock: statsBlock,
+		detailH:    detailH,
+	}
+}
 
-	parts := []string{dateBlock, " ", divider}
-	if detailH > 0 {
+func renderHistoryBody(m Model) string {
+	layout := calcHistoryLayout(m)
+	if layout.innerW <= 0 {
+		return ""
+	}
+	details := renderHistoryDetailsViewport(m, layout.detailH)
+
+	parts := []string{layout.dateBlock, " ", layout.divider}
+	if layout.detailH > 0 {
 		parts = append(parts, details)
 	}
-	parts = append(parts, " ", statsBlock)
+	parts = append(parts, " ", layout.statsBlock)
 	return strings.Join(parts, "\n")
 }
 
@@ -97,13 +105,7 @@ func historyOverdueActiveCount(m Model) int {
 }
 
 func (m Model) historyDetailViewportHeight() int {
-	innerH := calcLayoutMetrics(m.width, m.height).innerH
-	selectorH := linesCount(renderHistoryDateTable(m, sheetInnerWidth(m.width)))
-	detailH := innerH - (selectorH + 2 + historyStatsBlockHeight(m))
-	if detailH < 0 {
-		return 0
-	}
-	return detailH
+	return calcHistoryLayout(m).detailH
 }
 
 func historyStatsBlockHeight(m Model) int {

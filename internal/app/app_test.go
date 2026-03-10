@@ -42,6 +42,35 @@ func TestApp_Add_DefaultsDueDayToCurrentDay(t *testing.T) {
 	}
 }
 
+func TestApp_Add_RejectsBlankTitle(t *testing.T) {
+	ctx := context.Background()
+
+	s, err := sqlite.OpenInMemory()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	clk := fakeClock{now: time.Date(2026, 3, 4, 15, 0, 0, 0, time.UTC)}
+
+	a, err := app.New(app.Config{Store: s, Clock: clk, Location: time.UTC})
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	if _, err := a.Add(ctx, "   \t\n  "); err == nil {
+		t.Fatal("expected blank title to be rejected")
+	}
+
+	tasks, err := a.Today(ctx)
+	if err != nil {
+		t.Fatalf("today: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("expected no tasks to be created, got %#v", tasks)
+	}
+}
+
 func TestApp_Today_ReturnsActiveTasksDueOnOrBeforeCurrentDay(t *testing.T) {
 	ctx := context.Background()
 

@@ -79,6 +79,45 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, title string, createdDay, 
 	return domain.Task{ID: id, Title: title, Status: domain.StatusActive, CreatedDay: createdDay, DueDay: dueDay}, nil
 }
 
+func (s *SQLiteStore) UpdateTitle(ctx context.Context, id int64, title string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE tasks
+		 SET title = ?
+		 WHERE id = ? AND status = ?`,
+		title, id, string(domain.StatusActive),
+	)
+	if err != nil {
+		return fmt.Errorf("update title: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update title: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("update title: id=%d: %w", id, sql.ErrNoRows)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) DeleteTask(ctx context.Context, id int64) error {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM tasks
+		 WHERE id = ? AND status = ?`,
+		id, string(domain.StatusActive),
+	)
+	if err != nil {
+		return fmt.Errorf("delete task: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete task: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("delete task: id=%d: %w", id, sql.ErrNoRows)
+	}
+	return nil
+}
+
 func (s *SQLiteStore) ListActive(ctx context.Context, p store.ListActiveParams) ([]domain.Task, error) {
 	var op string
 	switch p.Window {

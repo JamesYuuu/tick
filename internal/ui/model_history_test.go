@@ -34,7 +34,7 @@ func TestModel_History_ShowsEmptyCopyUnderHeadingsWhenNoOutcomes(t *testing.T) {
 	if indexOf(bodyOnly, "No history tasks.") < 0 {
 		t.Fatalf("expected history body to show No history tasks. when there are no rows, got:\n%s", bodyOnly)
 	}
-	if indexOf(bodyOnly, "Done") >= 0 || indexOf(bodyOnly, "Abandoned") >= 0 {
+	if hasExactLine(bodyOnly, "Done") || hasExactLine(bodyOnly, "Abandoned") {
 		t.Fatalf("expected history body to not include Done/Abandoned headings anymore, got:\n%s", bodyOnly)
 	}
 }
@@ -43,6 +43,7 @@ func TestModel_History_EnterRefreshesStatsAndSelectedDayLists(t *testing.T) {
 	disableTick(t)
 
 	current := domain.MustParseDay("2026-03-04")
+	overdue := domain.MustParseDay("2026-03-03")
 	a := newFakeApp(current, nil)
 	a.historyDoneByDay = map[string][]domain.Task{
 		current.String(): {{ID: 1, Title: "done-1", Status: domain.StatusDone, CreatedDay: current, DueDay: current}},
@@ -50,7 +51,9 @@ func TestModel_History_EnterRefreshesStatsAndSelectedDayLists(t *testing.T) {
 	a.historyAbandonedByDay = map[string][]domain.Task{
 		current.String(): {{ID: 2, Title: "ab-1", Status: domain.StatusAbandoned, CreatedDay: current, DueDay: current}},
 	}
-	a.historyActiveByCreatedDay = map[string][]domain.Task{}
+	a.historyActiveByCreatedDay = map[string][]domain.Task{
+		current.String(): {{ID: 3, Title: "active-1", Status: domain.StatusActive, CreatedDay: current, DueDay: overdue}},
+	}
 	a.statsRatios = map[string]float64{"done": 0.25, "abandoned": 0.50}
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
@@ -84,16 +87,164 @@ func TestModel_History_EnterRefreshesStatsAndSelectedDayLists(t *testing.T) {
 	}
 
 	v := m.View()
-	if !containsAll(v, []string{"[✓] done-1", "[✗] ab-1", "DoneDelayedRatio", "AbandonedDelayedRatio"}) {
-		t.Fatalf("expected history view to include lists and ratios, got:\n%s", v)
+	if !containsAll(v, []string{"[✓] done-1", "[✗] ab-1", "[ ] active-1", "done: 1", "abandoned: 1", "overdue active: 1"}) {
+		t.Fatalf("expected history view to include lists and count stats, got:\n%s", v)
 	}
 	if indexOf(v, current.String()) >= 0 {
 		t.Fatalf("expected history dates to not include year, got:\n%s", v)
 	}
 
 	bodyOnly := renderHistoryBody(m)
-	if containsAll(bodyOnly, []string{"DoneDelayedRatio", "AbandonedDelayedRatio"}) {
-		t.Fatalf("expected ratios to be in footer/status area, not body")
+	if !containsAll(bodyOnly, []string{"done: 1", "abandoned: 1", "overdue active: 1"}) {
+		t.Fatalf("expected count stats to be rendered in history body, got:\n%s", bodyOnly)
+	}
+	if strings.Contains(m.footerStatusLine(), "done:") || strings.Contains(m.footerStatusLine(), "abandoned:") || strings.Contains(m.footerStatusLine(), "overdue active:") {
+		t.Fatalf("expected count stats to be absent from footer status, got %q", m.footerStatusLine())
+	}
+}
+
+func TestRenderHistoryStats_UsesLoadedCollectionCountsInsteadOfRatios(t *testing.T) {
+	disableTick(t)
+
+	today := domain.MustParseDay("2026-03-07")
+	overdue := domain.MustParseDay("2026-03-06")
+	m := NewWithDeps(newFakeApp(today, nil), fakeClock{now: time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	m.view = viewHistory
+	m.width = 80
+	m.height = 18
+	m.historyFrom = addDays(today, -6)
+	m.historyTo = today
+	m.historyIndex = 6
+	m.historyDone = []domain.Task{
+		{ID: 1, Title: "done-01", Status: domain.StatusDone, CreatedDay: today, DueDay: today, DoneDay: &today},
+		{ID: 2, Title: "done-02", Status: domain.StatusDone, CreatedDay: today, DueDay: today, DoneDay: &today},
+	}
+	m.historyAbandoned = []domain.Task{{ID: 3, Title: "ab-01", Status: domain.StatusAbandoned, CreatedDay: today, DueDay: today, AbandonedDay: &today}}
+	m.historyActiveCreated = []domain.Task{
+		{ID: 4, Title: "active-overdue", Status: domain.StatusActive, CreatedDay: today, DueDay: overdue},
+		{ID: 5, Title: "active-not-overdue", Status: domain.StatusActive, CreatedDay: today, DueDay: today},
+	}
+	m.historyStats.DoneDelayedRatio = 0.25
+	m.historyStats.AbandonedDelayedRatio = 0.5
+
+	got := renderHistoryStats(m)
+	if want := m.styles.Stats.Render("done: 2  abandoned: 1  overdue active: 1"); got != want {
+		t.Fatalf("expected stats line %q, got %q", want, got)
+	}
+	if strings.Contains(got, "DoneDelayedRatio") || strings.Contains(got, "AbandonedDelayedRatio") || strings.Contains(got, "0.25") || strings.Contains(got, "0.5") {
+		t.Fatalf("expected ratios to be absent from stats line, got %q", got)
+	}
+}
+
+func TestRenderHistoryBody_BottomAnchorsStatsBelowViewportPadding(t *testing.T) {
+	disableTick(t)
+
+	day := domain.MustParseDay("2026-03-07")
+	m := NewWithDeps(newFakeApp(day, nil), fakeClock{now: time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	m.view = viewHistory
+	m.width = 80
+	m.height = 18
+	m.historyFrom = addDays(day, -6)
+	m.historyTo = day
+	m.historyIndex = 6
+	m.historyDone = []domain.Task{{ID: 1, Title: "done-01", Status: domain.StatusDone, CreatedDay: day, DueDay: day, DoneDay: &day}}
+	m.historyAbandoned = []domain.Task{{ID: 2, Title: "ab-01", Status: domain.StatusAbandoned, CreatedDay: day, DueDay: day, AbandonedDay: &day}}
+	m.historyActiveCreated = []domain.Task{{ID: 3, Title: "active-01", Status: domain.StatusActive, CreatedDay: day, DueDay: addDays(day, -1)}}
+
+	body := renderHistoryBody(m)
+	statsLine := renderHistoryStats(m)
+	if !containsAll(body, []string{"done: 1", "abandoned: 1", "overdue active: 1"}) {
+		t.Fatalf("expected stats in history body, got:\n%s", body)
+	}
+
+	lines := strings.Split(body, "\n")
+	if got := lines[len(lines)-1]; got != statsLine {
+		t.Fatalf("expected stats on final line, got %q in:\n%s", got, body)
+	}
+	if strings.TrimSpace(lines[len(lines)-2]) != "" {
+		t.Fatalf("expected blank separator before stats, got %q in:\n%s", lines[len(lines)-2], body)
+	}
+
+	dividerIdx := indexOfExactLine(lines, strings.Repeat("-", sheetInnerWidth(m.width)-2))
+	if dividerIdx < 0 {
+		t.Fatalf("expected divider line in history body, got:\n%s", body)
+	}
+	detailStart := dividerIdx + 1
+	detailEnd := len(lines) - 3
+	if got, want := detailEnd-detailStart+1, m.historyDetailViewportHeight(); got != want {
+		t.Fatalf("expected detail viewport height %d, got %d in:\n%s", want, got, body)
+	}
+	if got := lines[detailStart]; !strings.Contains(got, "[✓] done-01") {
+		t.Fatalf("expected first detail row to contain task, got %q in:\n%s", got, body)
+	}
+	if got := lines[detailStart+1]; !strings.Contains(got, "[✗] ab-01") {
+		t.Fatalf("expected second detail row to contain task, got %q in:\n%s", got, body)
+	}
+	if got := lines[detailStart+2]; !strings.Contains(got, "[ ] active-01") {
+		t.Fatalf("expected third detail row to contain task, got %q in:\n%s", got, body)
+	}
+	for i := detailStart + 3; i <= detailEnd; i++ {
+		if strings.TrimSpace(lines[i]) != "" {
+			t.Fatalf("expected viewport padding before bottom-anchored stats at line %d, got %q in:\n%s", i, lines[i], body)
+		}
+	}
+}
+
+func TestRenderHistoryBody_ScrolledStateKeepsStatsVisibleWhileRowsMove(t *testing.T) {
+	disableTick(t)
+
+	day := domain.MustParseDay("2026-03-07")
+	m := NewWithDeps(newFakeApp(day, nil), fakeClock{now: time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	m.view = viewHistory
+	m.width = 80
+	m.height = 18
+	m.historyFrom = addDays(day, -6)
+	m.historyTo = day
+	m.historyIndex = 6
+	m.historyAbandoned = []domain.Task{{ID: 100, Title: "ab-01", Status: domain.StatusAbandoned, CreatedDay: day, DueDay: day, AbandonedDay: &day}}
+	m.historyActiveCreated = []domain.Task{{ID: 101, Title: "active-01", Status: domain.StatusActive, CreatedDay: day, DueDay: addDays(day, -1)}}
+	for i := 0; i < 12; i++ {
+		m.historyDone = append(m.historyDone, domain.Task{ID: int64(i + 1), Title: fmt.Sprintf("done-%02d", i+1), Status: domain.StatusDone, CreatedDay: day, DueDay: day, DoneDay: &day})
+	}
+
+	m.historyScroll = 0
+	bodyTop := renderHistoryBody(m)
+	m.historyScroll = 5
+	bodyScrolled := renderHistoryBody(m)
+
+	statsLine := renderHistoryStats(m)
+	topLines := strings.Split(bodyTop, "\n")
+	scrolledLines := strings.Split(bodyScrolled, "\n")
+	topStatsIdx := indexOfExactLine(topLines, statsLine)
+	scrolledStatsIdx := indexOfExactLine(scrolledLines, statsLine)
+	if topStatsIdx < 0 || scrolledStatsIdx < 0 {
+		t.Fatalf("expected stats line in both history bodies\nTOP:\n%s\nSCROLLED:\n%s", bodyTop, bodyScrolled)
+	}
+	if topStatsIdx != len(topLines)-1 || scrolledStatsIdx != len(scrolledLines)-1 {
+		t.Fatalf("expected stats to remain on final line\nTOP:\n%s\nSCROLLED:\n%s", bodyTop, bodyScrolled)
+	}
+	if topStatsIdx != scrolledStatsIdx {
+		t.Fatalf("expected stats line to stay at same anchored index, got top=%d scrolled=%d", topStatsIdx, scrolledStatsIdx)
+	}
+	if strings.TrimSpace(topLines[topStatsIdx-1]) != "" || strings.TrimSpace(scrolledLines[scrolledStatsIdx-1]) != "" {
+		t.Fatalf("expected blank separator before stats in both states\nTOP:\n%s\nSCROLLED:\n%s", bodyTop, bodyScrolled)
+	}
+
+	topDividerIdx := indexOfExactLine(topLines, strings.Repeat("-", sheetInnerWidth(m.width)-2))
+	scrolledDividerIdx := indexOfExactLine(scrolledLines, strings.Repeat("-", sheetInnerWidth(m.width)-2))
+	if topDividerIdx < 0 || scrolledDividerIdx < 0 {
+		t.Fatalf("expected divider line in both history bodies\nTOP:\n%s\nSCROLLED:\n%s", bodyTop, bodyScrolled)
+	}
+	topDetails := strings.Join(topLines[topDividerIdx+1:topStatsIdx-1], "\n")
+	scrolledDetails := strings.Join(scrolledLines[scrolledDividerIdx+1:scrolledStatsIdx-1], "\n")
+	if topDetails == scrolledDetails {
+		t.Fatalf("expected detail viewport rows to move under scroll\nTOP:\n%s\nSCROLLED:\n%s", bodyTop, bodyScrolled)
+	}
+	if !strings.Contains(topDetails, "done-01") || strings.Contains(scrolledDetails, "done-01") {
+		t.Fatalf("expected top rows to scroll out of detail viewport\nTOP DETAILS:\n%s\nSCROLLED DETAILS:\n%s", topDetails, scrolledDetails)
+	}
+	if !strings.Contains(scrolledDetails, "done-06") {
+		t.Fatalf("expected later rows to scroll into detail viewport, got:\n%s", scrolledDetails)
 	}
 }
 
@@ -224,15 +375,15 @@ func TestModel_History_DownClampsAtLastViewportStart(t *testing.T) {
 		m = um.(Model)
 	}
 
-	if m.historyScroll != 6 {
-		t.Fatalf("expected historyScroll clamped to 6, got %d", m.historyScroll)
+	if m.historyScroll != 8 {
+		t.Fatalf("expected historyScroll clamped to 8, got %d", m.historyScroll)
 	}
 
 	body := renderHistoryBody(m)
-	if strings.Contains(body, "done-06") {
+	if !strings.Contains(body, "done-09") {
 		t.Fatalf("expected body to start at the last full viewport, got:\n%s", body)
 	}
-	if !containsAll(body, []string{"done-07", "done-12"}) {
+	if !containsAll(body, []string{"done-10", "done-12"}) {
 		t.Fatalf("expected body to show the final viewport rows, got:\n%s", body)
 	}
 }
@@ -875,6 +1026,43 @@ func TestRenderHistoryBody_DoesNotDoubleHorizontalRulesBetweenSelectorAndDetails
 	}
 }
 
+func TestRenderHistoryBody_StylesStatsLineDistinctly(t *testing.T) {
+	disableTick(t)
+
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+
+	day := domain.MustParseDay("2026-03-07")
+	m := NewWithDeps(newFakeApp(day, nil), fakeClock{now: time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	m.view = viewHistory
+	m.width = 80
+	m.height = 18
+	m.historyFrom = addDays(day, -6)
+	m.historyTo = day
+	m.historyIndex = 6
+	m.historyDone = []domain.Task{{ID: 1, Title: "done-01", Status: domain.StatusDone, CreatedDay: day, DueDay: day, DoneDay: &day}}
+	m.historyAbandoned = []domain.Task{{ID: 2, Title: "ab-01", Status: domain.StatusAbandoned, CreatedDay: day, DueDay: day, AbandonedDay: &day}}
+	m.historyActiveCreated = []domain.Task{{ID: 3, Title: "active-01", Status: domain.StatusActive, CreatedDay: day, DueDay: addDays(day, -1)}}
+
+	body := renderHistoryBody(m)
+	statsLine := lineContaining(body, "done:")
+	if statsLine == "" {
+		t.Fatalf("expected stats line in history body, got:\n%s", body)
+	}
+	if statsLine == "done: 1  abandoned: 1  overdue active: 1" {
+		t.Fatalf("expected styled stats line, got plain text %q", statsLine)
+	}
+	if !strings.Contains(statsLine, "\x1b[") {
+		t.Fatalf("expected ANSI styling on stats line, got %q", statsLine)
+	}
+	if strings.Contains(lineContaining(body, "No history tasks."), "\x1b[") {
+		t.Fatalf("expected ordinary body text to remain unstyled, got:\n%s", body)
+	}
+	if want := m.styles.Stats.Render("done: 1  abandoned: 1  overdue active: 1"); statsLine != want {
+		t.Fatalf("expected stats line to use dedicated Stats style\nwant: %q\n got: %q", want, statsLine)
+	}
+}
+
 func TestRenderHistoryBody_DividerEndsWithSpaceToAvoidWrapArtifacts(t *testing.T) {
 	disableTick(t)
 
@@ -926,4 +1114,22 @@ func lineContaining(s, sub string) string {
 		}
 	}
 	return ""
+}
+
+func hasExactLine(s, want string) bool {
+	for _, ln := range strings.Split(s, "\n") {
+		if strings.TrimSpace(ln) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func indexOfExactLine(lines []string, want string) int {
+	for i, line := range lines {
+		if line == want {
+			return i
+		}
+	}
+	return -1
 }

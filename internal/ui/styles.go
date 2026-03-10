@@ -13,7 +13,10 @@ type styles struct {
 	AppTitle lipgloss.Style
 	Tab      lipgloss.Style
 	Help     lipgloss.Style
+	HelpKey  lipgloss.Style
+	Stats    lipgloss.Style
 	Sheet    lipgloss.Style
+	Modal    lipgloss.Style
 	RowSel   lipgloss.Style
 	RowSelDl lipgloss.Style
 	Reverse  lipgloss.Style
@@ -168,13 +171,16 @@ func defaultStyles() styles {
 	return styles{
 		AppTitle: lipgloss.NewStyle().Bold(true).Italic(true),
 		Tab:      lipgloss.NewStyle().Foreground(lipgloss.Color("240")),
-		Help:     lipgloss.NewStyle().Foreground(lipgloss.Color("242")),
+		Help:     lipgloss.NewStyle().Foreground(lipgloss.Color("245")),
+		HelpKey:  lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Bold(true),
+		Stats:    lipgloss.NewStyle().Foreground(lipgloss.Color("45")),
 		Sheet:    lipgloss.NewStyle().Padding(0, 1).Border(sheetBorder).BorderForeground(lipgloss.Color("240")),
+		Modal:    lipgloss.NewStyle().Padding(0, 1).Border(sheetBorder).BorderForeground(lipgloss.Color("240")),
 		RowSel:   lipgloss.NewStyle().Background(lipgloss.Color("254")).Foreground(lipgloss.Color("236")),
-		RowSelDl: lipgloss.NewStyle().Background(lipgloss.Color("254")).Foreground(lipgloss.Color("1")),
+		RowSelDl: lipgloss.NewStyle().Background(lipgloss.Color("254")).Foreground(lipgloss.Color("131")),
 		Reverse:  lipgloss.NewStyle().Reverse(true),
 		Status:   lipgloss.NewStyle().Foreground(lipgloss.Color("214")),
-		Delayed:  lipgloss.NewStyle().Foreground(lipgloss.Color("1")),
+		Delayed:  lipgloss.NewStyle().Foreground(lipgloss.Color("131")),
 	}
 }
 
@@ -204,12 +210,86 @@ func (m Model) footerStatusLine() string {
 	if m.statusMsg != "" {
 		return m.styles.Status.Render(m.statusMsg)
 	}
-	if m.view != viewHistory {
+	return ""
+}
+
+func joinFooterParts(parts ...string) string {
+	kept := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		kept = append(kept, part)
+	}
+	return strings.Join(kept, "  ")
+}
+
+func truncateFooterPart(part string, width int) string {
+	if width <= 0 || part == "" {
 		return ""
 	}
-	historyFooter := "DoneDelayedRatio: " + fmtRatio(m.historyStats.DoneDelayedRatio) +
-		"  AbandonedDelayedRatio: " + fmtRatio(m.historyStats.AbandonedDelayedRatio)
-	return m.styles.Status.Render(historyFooter)
+	if ansi.StringWidth(part) <= width {
+		return part
+	}
+	return ansi.Truncate(part, width, "")
+}
+
+func formatTodayFooterLine1(windowWidth int, status, left, right string) string {
+	width := contentWidth(windowWidth)
+	if width <= 0 {
+		return ""
+	}
+
+	leftPrefix := joinFooterParts(status, left)
+	if leftPrefix == "" {
+		return truncateFooterPart(right, width)
+	}
+
+	leftW := ansi.StringWidth(leftPrefix)
+	rightW := ansi.StringWidth(right)
+	if right != "" && leftW+2+rightW <= width {
+		return leftPrefix + strings.Repeat(" ", width-leftW-rightW) + right
+	}
+	if leftW <= width {
+		return leftPrefix
+	}
+	if status != "" {
+		return truncateFooterPart(status, width)
+	}
+	return truncateFooterPart(left, width)
+}
+
+func (m Model) footerLines() (string, string) {
+	helpLines := strings.Split(m.help(), "\n")
+	line1 := ""
+	line2 := ""
+	if len(helpLines) > 0 {
+		line1 = helpLines[0]
+	}
+	if len(helpLines) > 1 {
+		line2 = helpLines[1]
+	}
+	status := m.footerStatusLine()
+	if m.view == viewToday {
+		left := m.helpLine(
+			[2]string{"a", "add"},
+			[2]string{"e", "edit"},
+			[2]string{"del", "delete"},
+		)
+		right := m.helpLine(
+			[2]string{"x", "done"},
+			[2]string{"d", "abandon"},
+			[2]string{"p", "postpone"},
+		)
+		return formatTodayFooterLine1(m.width, status, left, right), line2
+	}
+	if status == "" {
+		return line1, line2
+	}
+	if line1 == "" {
+		return status, line2
+	}
+	return status + "  " + line1, line2
 }
 
 func fmtRatio(f float64) string {
@@ -248,14 +328,143 @@ func (m Model) selectedCellLabel(label string) string {
 	return m.styles.Reverse.Render(" " + label + " ")
 }
 
+func (m Model) helpToken(key, label string) string {
+	return m.styles.HelpKey.Render(key+":") + m.styles.Help.Render(label)
+}
+
+func (m Model) helpLine(tokens ...[2]string) string {
+	parts := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		parts = append(parts, m.helpToken(token[0], token[1]))
+	}
+	return strings.Join(parts, "  ")
+}
+
+func alignHelpGroups(windowWidth int, left, right string) string {
+	if left == "" {
+		return right
+	}
+	if right == "" {
+		return left
+	}
+
+	width := contentWidth(windowWidth)
+	leftW := ansi.StringWidth(left)
+	rightW := ansi.StringWidth(right)
+	if width <= 0 || leftW+2+rightW > width {
+		return left + "  " + right
+	}
+
+	pad := width - leftW - rightW
+	if pad < 2 {
+		pad = 2
+	}
+	return left + strings.Repeat(" ", pad) + right
+}
+
 func (m Model) help() string {
-	base := "tab:Next  q:Quit"
-	suffix := ""
+	line1 := ""
+	line2 := m.helpLine([2]string{"tab", "next"}, [2]string{"q", "quit"})
 	switch m.view {
 	case viewToday:
-		suffix = "  a:Add  x:Done  d:Abandon  p:+1 day"
+		left := m.helpLine(
+			[2]string{"a", "add"},
+			[2]string{"e", "edit"},
+			[2]string{"del", "delete"},
+		)
+		right := m.helpLine(
+			[2]string{"x", "done"},
+			[2]string{"d", "abandon"},
+			[2]string{"p", "postpone"},
+		)
+		line1 = alignHelpGroups(m.width, left, right)
+	case viewUpcoming:
+		line1 = m.helpLine([2]string{"e", "edit"}, [2]string{"del", "delete"})
 	case viewHistory:
-		suffix = "  left/h:prev day  right/l:next day  up/k:scroll up  down/j:scroll down"
+		left := m.helpLine(
+			[2]string{"left/h", "prev day"},
+			[2]string{"right/l", "next day"},
+		)
+		right := m.helpLine(
+			[2]string{"up/k", "scroll up"},
+			[2]string{"down/j", "scroll down"},
+		)
+		line1 = alignHelpGroups(m.width, left, right)
 	}
-	return m.styles.Help.Render(base + suffix)
+	return strings.Join([]string{line1, line2}, "\n")
+}
+
+func modalTextWidth(windowWidth int) int {
+	w := contentWidth(windowWidth) - 24
+	if w > 40 {
+		return 40
+	}
+	if w < 12 {
+		return 12
+	}
+	return w
+}
+
+func modalInputWidth(windowWidth int) int {
+	w := modalTextWidth(windowWidth) - 2
+	if w < 8 {
+		return 8
+	}
+	return w
+}
+
+func renderOverlay(base, overlay string, width, height int) string {
+	if overlay == "" {
+		return base
+	}
+
+	canvasW := contentWidth(width)
+	baseLines := strings.Split(forceHeight(base, height), "\n")
+	overlayLines := strings.Split(strings.TrimRight(overlay, "\n"), "\n")
+	if len(overlayLines) == 0 {
+		return base
+	}
+
+	overlayW := 0
+	for _, line := range overlayLines {
+		if w := ansi.StringWidth(line); w > overlayW {
+			overlayW = w
+		}
+	}
+	leftPad := (canvasW - overlayW) / 2
+	if leftPad < 0 {
+		leftPad = 0
+	}
+	topPad := (height - len(overlayLines)) / 2
+	if topPad < 0 {
+		topPad = 0
+	}
+
+	for i, line := range overlayLines {
+		idx := topPad + i
+		if idx < 0 || idx >= len(baseLines) {
+			continue
+		}
+		baseLines[idx] = overlayCanvasLine(line, canvasW, leftPad)
+	}
+	return strings.Join(baseLines, "\n")
+}
+
+func overlayCanvasLine(overlay string, width, leftPad int) string {
+	if width <= 0 {
+		return overlay
+	}
+	if leftPad < 0 {
+		leftPad = 0
+	}
+	available := width - leftPad
+	if available < 0 {
+		available = 0
+	}
+	line := ansi.Truncate(overlay, available, "")
+	rightPad := width - leftPad - ansi.StringWidth(line)
+	if rightPad < 0 {
+		rightPad = 0
+	}
+	return strings.Repeat(" ", leftPad) + line + strings.Repeat(" ", rightPad)
 }

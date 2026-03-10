@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/JamesYuuu/tick/internal/domain"
@@ -16,6 +18,8 @@ type App struct {
 	loc   *time.Location
 }
 
+var errTitleBlank = errors.New("title cannot be blank")
+
 func New(cfg Config) (*App, error) {
 	if err := (&cfg).validate(); err != nil {
 		return nil, err
@@ -28,8 +32,24 @@ func (a *App) currentDay() domain.Day {
 }
 
 func (a *App) Add(ctx context.Context, title string) (domain.Task, error) {
+	title, err := normalizeTitle(title)
+	if err != nil {
+		return domain.Task{}, err
+	}
 	day := a.currentDay()
 	return a.store.CreateTask(ctx, title, day, day)
+}
+
+func (a *App) EditTitle(ctx context.Context, id int64, title string) error {
+	title, err := normalizeTitle(title)
+	if err != nil {
+		return err
+	}
+	return a.store.UpdateTitle(ctx, id, title)
+}
+
+func (a *App) Delete(ctx context.Context, id int64) error {
+	return a.store.DeleteTask(ctx, id)
 }
 
 func (a *App) Today(ctx context.Context) ([]domain.Task, error) {
@@ -89,4 +109,12 @@ func historyByDay(
 		return nil, fmt.Errorf("%s: %w", prefix, err)
 	}
 	return out, nil
+}
+
+func normalizeTitle(title string) (string, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return "", errTitleBlank
+	}
+	return title, nil
 }

@@ -36,7 +36,7 @@ type Model struct {
 	statusMsg    string
 	width        int
 	height       int
-	adding       bool
+	modal        modalState
 	addInput     textinput.Model
 	todayList    list.Model
 	upcomingList list.Model
@@ -53,6 +53,8 @@ type Model struct {
 
 type appClient interface {
 	Add(ctx context.Context, title string) (domain.Task, error)
+	EditTitle(ctx context.Context, id int64, title string) error
+	Delete(ctx context.Context, id int64) error
 	Today(ctx context.Context) ([]domain.Task, error)
 	Upcoming(ctx context.Context) ([]domain.Task, error)
 	Done(ctx context.Context, id int64) error
@@ -66,6 +68,22 @@ type appClient interface {
 
 type clock interface {
 	Now() time.Time
+}
+
+type modalKind int
+
+const (
+	modalKindNone modalKind = iota
+	modalKindAdd
+	modalKindEdit
+	modalKindDelete
+)
+
+type modalState struct {
+	kind       modalKind
+	taskID     int64
+	taskTitle  string
+	submitting bool
 }
 
 var tickEvery = 10 * time.Second
@@ -127,9 +145,6 @@ func (d todayItemDelegate) Render(w io.Writer, m list.Model, index int, item lis
 
 	selected := index == m.Index()
 	line := it.task.Title
-	if !selected {
-		line = "  " + line
-	}
 
 	if it.task.IsDelayed(d.currentDay) {
 		if selected {
@@ -155,9 +170,6 @@ func (d simpleItemDelegate) Render(w io.Writer, m list.Model, index int, item li
 	}
 	selected := index == m.Index()
 	line := it.task.Title
-	if !selected {
-		line = "  " + line
-	}
 	if selected {
 		line = d.styles.Reverse.Render(line)
 	}
@@ -178,6 +190,20 @@ type refreshMsg struct {
 	today    []domain.Task
 	upcoming []domain.Task
 	err      error
+}
+
+type modalSubmitMsg struct {
+	today    []domain.Task
+	upcoming []domain.Task
+	err      error
+	close    bool
+}
+
+type deleteModalSubmitMsg struct {
+	view  view
+	tasks []domain.Task
+	err   error
+	close bool
 }
 
 func (m Model) cmdRefreshActive() tea.Cmd {
@@ -213,6 +239,66 @@ func (m Model) cmdActThenRefresh(prefix string, act func(ctx context.Context) er
 	}
 }
 
+func (m Model) cmdSubmitModal() tea.Cmd {
+	modal := m.modal
+	title := strings.TrimSpace(m.addInput.Value())
+
+	return func() tea.Msg {
+		ctx := context.Background()
+		switch modal.kind {
+		case modalKindAdd:
+			if _, err := m.app.Add(ctx, title); err != nil {
+				return modalSubmitMsg{err: fmt.Errorf("add: %w", err)}
+			}
+		case modalKindEdit:
+			if err := m.app.EditTitle(ctx, modal.taskID, title); err != nil {
+				return modalSubmitMsg{err: fmt.Errorf("edit: %w", err)}
+			}
+		default:
+			return nil
+		}
+
+		today, err := m.app.Today(ctx)
+		if err != nil {
+			return modalSubmitMsg{err: fmt.Errorf("today: %w", err), close: true}
+		}
+		up, err := m.app.Upcoming(ctx)
+		if err != nil {
+			return modalSubmitMsg{err: fmt.Errorf("upcoming: %w", err), close: true}
+		}
+		return modalSubmitMsg{today: today, upcoming: up, close: true}
+	}
+}
+
+func (m Model) cmdConfirmDelete() tea.Cmd {
+	modal := m.modal
+	currentView := m.view
+
+	return func() tea.Msg {
+		ctx := context.Background()
+		if err := m.app.Delete(ctx, modal.taskID); err != nil {
+			return deleteModalSubmitMsg{view: currentView, err: fmt.Errorf("delete: %w", err)}
+		}
+
+		switch currentView {
+		case viewToday:
+			today, err := m.app.Today(ctx)
+			if err != nil {
+				return deleteModalSubmitMsg{view: currentView, err: fmt.Errorf("today: %w", err), close: true}
+			}
+			return deleteModalSubmitMsg{view: currentView, tasks: today, close: true}
+		case viewUpcoming:
+			upcoming, err := m.app.Upcoming(ctx)
+			if err != nil {
+				return deleteModalSubmitMsg{view: currentView, err: fmt.Errorf("upcoming: %w", err), close: true}
+			}
+			return deleteModalSubmitMsg{view: currentView, tasks: upcoming, close: true}
+		default:
+			return deleteModalSubmitMsg{view: currentView, close: true}
+		}
+	}
+}
+
 func (m Model) currentDay() domain.Day {
 	return timeutil.CurrentDay(m.clock, m.loc)
 }
@@ -225,6 +311,15 @@ func tasksToItems(ts []domain.Task) []list.Item {
 	return items
 }
 
+func (m *Model) applyActiveRefresh(todayTasks, upcomingTasks []domain.Task) {
+	m.statusMsg = ""
+	m.todayList.SetItems(tasksToItems(todayTasks))
+	today := m.currentDay()
+	m.lastDay = today
+	m.todayList.SetDelegate(todayItemDelegate{styles: m.styles, currentDay: today})
+	m.upcomingList.SetItems(tasksToItems(upcomingTasks))
+}
+
 func (m Model) selectedTaskID() (int64, bool) {
 	if m.view != viewToday {
 		return 0, false
@@ -235,6 +330,50 @@ func (m Model) selectedTaskID() (int64, bool) {
 		return 0, false
 	}
 	return ti.task.ID, true
+}
+
+func (m Model) selectedActiveTask() (domain.Task, bool) {
+	var it list.Item
+	switch m.view {
+	case viewToday:
+		it = m.todayList.SelectedItem()
+	case viewUpcoming:
+		it = m.upcomingList.SelectedItem()
+	default:
+		return domain.Task{}, false
+	}
+	ti, ok := it.(taskItem)
+	if !ok {
+		return domain.Task{}, false
+	}
+	return ti.task, true
+}
+
+func (m *Model) openAddModal() {
+	m.modal = modalState{kind: modalKindAdd}
+	m.addInput.SetValue("")
+	m.addInput.Focus()
+}
+
+func (m *Model) openTaskModal(kind modalKind, task domain.Task) {
+	m.modal = modalState{kind: kind, taskID: task.ID, taskTitle: task.Title}
+	if kind == modalKindEdit {
+		m.addInput.SetValue(task.Title)
+		m.addInput.Focus()
+		return
+	}
+
+	m.addInput.Blur()
+	m.addInput.SetValue("")
+	if kind == modalKindAdd {
+		m.addInput.Focus()
+	}
+}
+
+func (m *Model) closeModal() {
+	m.modal = modalState{}
+	m.addInput.Blur()
+	m.addInput.SetValue("")
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -252,12 +391,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = msg.err.Error()
 			return m, nil
 		}
+		m.applyActiveRefresh(msg.today, msg.upcoming)
+		return m, nil
+	case modalSubmitMsg:
+		m.modal.submitting = false
+		if msg.close {
+			m.closeModal()
+		}
+		if msg.err != nil {
+			m.statusMsg = msg.err.Error()
+			return m, nil
+		}
+		m.applyActiveRefresh(msg.today, msg.upcoming)
+		return m, nil
+	case deleteModalSubmitMsg:
+		m.modal.submitting = false
+		if msg.close {
+			m.closeModal()
+		}
+		if msg.err != nil {
+			m.statusMsg = msg.err.Error()
+			return m, nil
+		}
 		m.statusMsg = ""
-		m.todayList.SetItems(tasksToItems(msg.today))
-		today := m.currentDay()
-		m.lastDay = today
-		m.todayList.SetDelegate(todayItemDelegate{styles: m.styles, currentDay: today})
-		m.upcomingList.SetItems(tasksToItems(msg.upcoming))
+		switch msg.view {
+		case viewToday:
+			m.todayList.SetItems(tasksToItems(msg.tasks))
+			today := m.currentDay()
+			m.lastDay = today
+			m.todayList.SetDelegate(todayItemDelegate{styles: m.styles, currentDay: today})
+		case viewUpcoming:
+			m.upcomingList.SetItems(tasksToItems(msg.tasks))
+		}
 		return m, nil
 	case historyRefreshMsg:
 		if msg.err != nil {
@@ -287,31 +452,56 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(m.cmdRefreshActive(), m.tickCmd())
 	case tea.KeyMsg:
-		if m.adding {
+		if m.modal.kind != modalKindNone {
 			if key.Matches(msg, m.keys.Quit) {
 				return m, tea.Quit
 			}
-			switch msg.Type {
-			case tea.KeyEsc:
-				m.adding = false
-				m.addInput.Blur()
+			if msg.Type == tea.KeyEsc {
+				m.closeModal()
 				return m, nil
-			case tea.KeyEnter:
-				title := m.addInput.Value()
-				m.adding = false
-				m.addInput.Blur()
-				m.addInput.SetValue("")
-				if title == "" {
+			}
+			switch m.modal.kind {
+			case modalKindAdd, modalKindEdit:
+				if msg.Type == tea.KeyEnter {
+					if m.modal.submitting {
+						return m, nil
+					}
+					if strings.TrimSpace(m.addInput.Value()) == "" {
+						return m, nil
+					}
+					m.modal.submitting = true
+					return m, m.cmdSubmitModal()
+				}
+				if key.Matches(msg, m.keys.Done) || key.Matches(msg, m.keys.Abandon) || key.Matches(msg, m.keys.Postpone) || key.Matches(msg, m.keys.Edit) || key.Matches(msg, m.keys.Delete) || key.Matches(msg, m.keys.Add) || key.Matches(msg, m.keys.NextView) {
 					return m, nil
 				}
-				return m, m.cmdActThenRefresh("add", func(ctx context.Context) error {
-					_, err := m.app.Add(ctx, title)
-					return err
-				})
+				var cmd tea.Cmd
+				m.addInput, cmd = m.addInput.Update(msg)
+				return m, cmd
+			case modalKindDelete:
+				if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
+					switch strings.ToLower(string(msg.Runes[0])) {
+					case "y":
+						if m.modal.submitting {
+							return m, nil
+						}
+						m.modal.submitting = true
+						return m, m.cmdConfirmDelete()
+					case "n":
+						m.closeModal()
+						return m, nil
+					}
+				}
+				if key.Matches(msg, m.keys.Done) || key.Matches(msg, m.keys.Abandon) || key.Matches(msg, m.keys.Postpone) || key.Matches(msg, m.keys.Edit) || key.Matches(msg, m.keys.Delete) || key.Matches(msg, m.keys.Add) || key.Matches(msg, m.keys.NextView) {
+					return m, nil
+				}
+				return m, nil
+			default:
+				if key.Matches(msg, m.keys.Done) || key.Matches(msg, m.keys.Abandon) || key.Matches(msg, m.keys.Postpone) || key.Matches(msg, m.keys.Edit) || key.Matches(msg, m.keys.Delete) || key.Matches(msg, m.keys.Add) || key.Matches(msg, m.keys.NextView) {
+					return m, nil
+				}
+				return m, nil
 			}
-			var cmd tea.Cmd
-			m.addInput, cmd = m.addInput.Update(msg)
-			return m, cmd
 		}
 
 		switch {
@@ -340,8 +530,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.view != viewToday {
 				return m, nil
 			}
-			m.adding = true
-			m.addInput.Focus()
+			m.openAddModal()
+			return m, nil
+		case key.Matches(msg, m.keys.Edit):
+			task, ok := m.selectedActiveTask()
+			if !ok {
+				return m, nil
+			}
+			m.openTaskModal(modalKindEdit, task)
+			return m, nil
+		case key.Matches(msg, m.keys.Delete):
+			task, ok := m.selectedActiveTask()
+			if !ok {
+				return m, nil
+			}
+			m.openTaskModal(modalKindDelete, task)
 			return m, nil
 		case key.Matches(msg, m.keys.Done):
 			id, ok := m.selectedTaskID()
@@ -488,15 +691,13 @@ func (m Model) View() string {
 
 	header := m.header(active)
 	sep := separatorLine(m.width)
-	status := m.footerStatusLine()
-	help := m.help()
+	footerLine1, footerLine2 := m.footerLines()
 
 	// Clamp variable-height blocks so zone line positions are stable.
 	header = forceHeight(header, 1)
-	status = forceHeight(status, 1)
-	help = forceHeight(help, 1)
+	footer := forceHeight(strings.Join([]string{footerLine1, footerLine2}, "\n"), footerHelpHeight)
 
-	// Fullscreen layout has a fixed 2-line footer (status + help).
+	// Fullscreen layout has a fixed 2-line footer.
 	g := calcLayoutMetrics(m.width, m.height)
 	if g.innerW > 0 {
 		m.todayList.SetSize(g.innerW, g.innerH)
@@ -517,12 +718,10 @@ func (m Model) View() string {
 	b.WriteString("\n")
 	b.WriteString(sep)
 	b.WriteString("\n")
-	// Status line is always present to keep footer height stable.
-	b.WriteString(status)
-	b.WriteString("\n")
-	b.WriteString(help)
+	b.WriteString(footer)
 
 	out := b.String()
+	out = renderOverlay(out, renderModal(m), g.contentW, m.height)
 	out = forceHeight(out, m.height)
 	out = clipLinesToWidth(out, g.contentW)
 	out = padLeftToWidth(out, m.width)

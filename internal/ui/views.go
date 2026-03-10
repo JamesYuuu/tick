@@ -5,12 +5,10 @@ import (
 	"strings"
 
 	"github.com/JamesYuuu/tick/internal/domain"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func renderTodayBody(m Model) string {
-	if m.adding {
-		return "Add task\n\n" + m.addInput.View()
-	}
 	if len(m.todayList.Items()) == 0 {
 		return renderCenteredEmpty(m, "Nothing due today.")
 	}
@@ -36,6 +34,7 @@ func renderHistoryBody(m Model) string {
 	}
 
 	dateBlock := renderHistoryDateTable(m, innerW)
+	statsBlock := renderHistoryStats(m)
 	// Divider aligns to the sheet frame.
 	divider := ""
 	if innerW > 2 {
@@ -44,7 +43,7 @@ func renderHistoryBody(m Model) string {
 		divider = strings.Repeat("-", innerW-2)
 	}
 
-	workspaceH := m.height - (1 + 1 + 1 + 2)
+	workspaceH := m.height - (headerHeight + separatorHeights + footerHeight)
 	if workspaceH < 0 {
 		workspaceH = 0
 	}
@@ -53,10 +52,11 @@ func renderHistoryBody(m Model) string {
 		innerH = 0
 	}
 	// Date selector is N lines (table or 1-line fallback), then a blank line,
-	// then a full-width divider.
+	// then a full-width divider, then the details viewport and bottom stats.
 	selectorH := linesCount(dateBlock)
 	sepH := 2
-	detailH := innerH - (selectorH + sepH)
+	statsH := historyStatsBlockHeight(m)
+	detailH := innerH - (selectorH + sepH + statsH)
 	if detailH < 0 {
 		detailH = 0
 	}
@@ -67,17 +67,47 @@ func renderHistoryBody(m Model) string {
 	if detailH > 0 {
 		parts = append(parts, details)
 	}
+	parts = append(parts, " ", statsBlock)
 	return strings.Join(parts, "\n")
+}
+
+func renderHistoryStats(m Model) string {
+	line := fmt.Sprintf(
+		"done: %d  abandoned: %d  overdue active: %d",
+		len(m.historyDone),
+		len(m.historyAbandoned),
+		historyOverdueActiveCount(m),
+	)
+	return m.styles.Stats.Render(line)
+}
+
+func historyOverdueActiveCount(m Model) int {
+	today := m.currentDay()
+	count := 0
+	for _, t := range m.historyActiveCreated {
+		if t.Status != domain.StatusActive {
+			continue
+		}
+		if !t.DueDay.Before(today) {
+			continue
+		}
+		count++
+	}
+	return count
 }
 
 func (m Model) historyDetailViewportHeight() int {
 	innerH := calcLayoutMetrics(m.width, m.height).innerH
 	selectorH := linesCount(renderHistoryDateTable(m, sheetInnerWidth(m.width)))
-	detailH := innerH - (selectorH + 2)
+	detailH := innerH - (selectorH + 2 + historyStatsBlockHeight(m))
 	if detailH < 0 {
 		return 0
 	}
 	return detailH
+}
+
+func historyStatsBlockHeight(m Model) int {
+	return linesCount(renderHistoryStats(m)) + 1
 }
 
 func (m Model) maxHistoryScroll() int {
@@ -209,4 +239,42 @@ func linesCount(s string) int {
 		return 0
 	}
 	return strings.Count(s, "\n") + 1
+}
+
+func renderModal(m Model) string {
+	switch m.modal.kind {
+	case modalKindAdd:
+		return renderInputModal(m, "Add task")
+	case modalKindEdit:
+		return renderInputModal(m, "Edit task")
+	case modalKindDelete:
+		return renderDeleteModal(m)
+	default:
+		return ""
+	}
+}
+
+func renderInputModal(m Model, title string) string {
+	input := m.addInput
+	input.Width = modalInputWidth(m.width)
+	body := strings.Join([]string{
+		title,
+		"",
+		input.View(),
+		"",
+		m.helpLine([2]string{"enter", "save"}, [2]string{"esc", "cancel"}),
+	}, "\n")
+	return m.styles.Modal.Render(body)
+}
+
+func renderDeleteModal(m Model) string {
+	title := ansi.Truncate(m.modal.taskTitle, modalTextWidth(m.width), "")
+	body := strings.Join([]string{
+		"Delete task?",
+		"",
+		title,
+		"",
+		m.helpLine([2]string{"y", "delete"}, [2]string{"n", "cancel"}),
+	}, "\n")
+	return m.styles.Modal.Render(body)
 }

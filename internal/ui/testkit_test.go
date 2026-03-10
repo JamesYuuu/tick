@@ -43,6 +43,8 @@ type fakeApp struct {
 	statsErr      error
 
 	addedTitles  []string
+	editedTasks  []editedTaskCall
+	deletedIDs   []int64
 	doneIDs      []int64
 	abandonedIDs []int64
 	postponedIDs []int64
@@ -50,9 +52,16 @@ type fakeApp struct {
 	todayErr    error
 	upcomingErr error
 	addErr      error
+	editErr     error
+	deleteErr   error
 	doneErr     error
 	abandonErr  error
 	postponeErr error
+}
+
+type editedTaskCall struct {
+	id    int64
+	title string
 }
 
 func newFakeApp(currentDay domain.Day, tasks []domain.Task) *fakeApp {
@@ -91,6 +100,35 @@ func (a *fakeApp) Add(ctx context.Context, title string) (domain.Task, error) {
 	a.nextID++
 	a.tasks = append(a.tasks, task)
 	return task, nil
+}
+
+func (a *fakeApp) EditTitle(ctx context.Context, id int64, title string) error {
+	_ = ctx
+	a.editedTasks = append(a.editedTasks, editedTaskCall{id: id, title: title})
+	if a.editErr != nil {
+		return a.editErr
+	}
+	for i := range a.tasks {
+		if a.tasks[i].ID == id {
+			a.tasks[i].Title = title
+		}
+	}
+	return nil
+}
+
+func (a *fakeApp) Delete(ctx context.Context, id int64) error {
+	_ = ctx
+	a.deletedIDs = append(a.deletedIDs, id)
+	if a.deleteErr != nil {
+		return a.deleteErr
+	}
+	for i := range a.tasks {
+		if a.tasks[i].ID == id {
+			a.tasks = append(a.tasks[:i], a.tasks[i+1:]...)
+			break
+		}
+	}
+	return nil
 }
 
 func (a *fakeApp) Today(ctx context.Context) ([]domain.Task, error) {
@@ -270,4 +308,8 @@ func keyTab() tea.KeyMsg {
 
 func keyEnter() tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyEnter}
+}
+
+func keyEsc() tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyEsc}
 }

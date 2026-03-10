@@ -10,6 +10,8 @@ type Store interface {
 	Close() error
 
 	CreateTask(ctx context.Context, title string, createdDay, dueDay domain.Day) (domain.Task, error)
+	UpdateTitle(ctx context.Context, id int64, title string) error
+	DeleteTask(ctx context.Context, id int64) error
 	ListActive(ctx context.Context, p ListActiveParams) ([]domain.Task, error)
 	MarkDone(ctx context.Context, id int64, doneDay domain.Day) error
 	MarkAbandoned(ctx context.Context, id int64, abandonedDay domain.Day) error

@@ -190,6 +190,213 @@ func TestSQLiteStore_Postpone_NotActive_ReturnsInvalidTransition(t *testing.T) {
 	})
 }
 
+func TestSQLiteStore_UpdateTitle_ActiveTask(t *testing.T) {
+	ctx := context.Background()
+
+	s, err := sqlite.OpenInMemory()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.Close()
+	})
+
+	day := domain.MustParseDay("2026-03-10")
+	task, err := s.CreateTask(ctx, "old", day, day)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	if err := s.UpdateTitle(ctx, task.ID, "new title"); err != nil {
+		t.Fatalf("update title: %v", err)
+	}
+
+	got, err := s.ListActive(ctx, store.ListActiveParams{CurrentDay: day, Window: store.ActiveDueLTECurrent})
+	if err != nil {
+		t.Fatalf("list active: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 active task, got %#v", got)
+	}
+	if got[0].Title != "new title" {
+		t.Fatalf("got title %q", got[0].Title)
+	}
+}
+
+func TestSQLiteStore_DeleteTask_ActiveTask(t *testing.T) {
+	ctx := context.Background()
+
+	s, err := sqlite.OpenInMemory()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.Close()
+	})
+
+	day := domain.MustParseDay("2026-03-10")
+	task, err := s.CreateTask(ctx, "delete me", day, day)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	if err := s.DeleteTask(ctx, task.ID); err != nil {
+		t.Fatalf("delete task: %v", err)
+	}
+
+	got, err := s.ListActive(ctx, store.ListActiveParams{CurrentDay: day, Window: store.ActiveDueLTECurrent})
+	if err != nil {
+		t.Fatalf("list active: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected no active tasks, got %#v", got)
+	}
+}
+
+func TestSQLiteStore_UpdateTitle_NotFound_WrapsNoRows(t *testing.T) {
+	ctx := context.Background()
+
+	s, err := sqlite.OpenInMemory()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.Close()
+	})
+
+	err = s.UpdateTitle(ctx, 12345, "new title")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected errors.Is(err, sql.ErrNoRows) true, got %v", err)
+	}
+	if err == sql.ErrNoRows {
+		t.Fatalf("expected wrapped error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "update title") {
+		t.Fatalf("expected context in error, got %v", err)
+	}
+}
+
+func TestSQLiteStore_UpdateTitle_DoneTask_WrapsNoRows(t *testing.T) {
+	ctx := context.Background()
+
+	s, err := sqlite.OpenInMemory()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.Close()
+	})
+
+	day := domain.MustParseDay("2026-03-10")
+	task, err := s.CreateTask(ctx, "old", day, day)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := s.MarkDone(ctx, task.ID, domain.MustParseDay("2026-03-11")); err != nil {
+		t.Fatalf("mark done: %v", err)
+	}
+
+	err = s.UpdateTitle(ctx, task.ID, "new title")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected errors.Is(err, sql.ErrNoRows) true, got %v", err)
+	}
+	if err == sql.ErrNoRows {
+		t.Fatalf("expected wrapped error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "update title") {
+		t.Fatalf("expected context in error, got %v", err)
+	}
+}
+
+func TestSQLiteStore_DeleteTask_NotFound_WrapsNoRows(t *testing.T) {
+	ctx := context.Background()
+
+	s, err := sqlite.OpenInMemory()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.Close()
+	})
+
+	err = s.DeleteTask(ctx, 12345)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected errors.Is(err, sql.ErrNoRows) true, got %v", err)
+	}
+	if err == sql.ErrNoRows {
+		t.Fatalf("expected wrapped error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "delete task") {
+		t.Fatalf("expected context in error, got %v", err)
+	}
+}
+
+func TestSQLiteStore_DeleteTask_InactiveTask_WrapsNoRows(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name string
+		mark func(*sqlite.SQLiteStore, int64) error
+	}{
+		{
+			name: "done",
+			mark: func(s *sqlite.SQLiteStore, id int64) error {
+				return s.MarkDone(ctx, id, domain.MustParseDay("2026-03-11"))
+			},
+		},
+		{
+			name: "abandoned",
+			mark: func(s *sqlite.SQLiteStore, id int64) error {
+				return s.MarkAbandoned(ctx, id, domain.MustParseDay("2026-03-11"))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, err := sqlite.OpenInMemory()
+			if err != nil {
+				t.Fatalf("open: %v", err)
+			}
+			t.Cleanup(func() {
+				_ = s.Close()
+			})
+
+			day := domain.MustParseDay("2026-03-10")
+			task, err := s.CreateTask(ctx, "delete me", day, day)
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+			if err := tc.mark(s, task.ID); err != nil {
+				t.Fatalf("mark inactive: %v", err)
+			}
+
+			err = s.DeleteTask(ctx, task.ID)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				t.Fatalf("expected errors.Is(err, sql.ErrNoRows) true, got %v", err)
+			}
+			if err == sql.ErrNoRows {
+				t.Fatalf("expected wrapped error, got %v", err)
+			}
+			if !strings.Contains(err.Error(), "delete task") {
+				t.Fatalf("expected context in error, got %v", err)
+			}
+		})
+	}
+}
+
 func TestSQLiteStore_ListActiveByCreatedDay_FiltersByDay(t *testing.T) {
 	ctx := context.Background()
 

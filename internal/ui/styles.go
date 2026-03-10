@@ -274,11 +274,11 @@ func (m Model) footerLines() (string, string) {
 		left := m.helpLine(
 			[2]string{"a", "add"},
 			[2]string{"e", "edit"},
-			[2]string{"del", "delete"},
+			[2]string{"d", "delete"},
 		)
 		right := m.helpLine(
 			[2]string{"x", "done"},
-			[2]string{"d", "abandon"},
+			[2]string{"b", "abandon"},
 			[2]string{"p", "postpone"},
 		)
 		return formatTodayFooterLine1(m.width, status, left, right), line2
@@ -370,16 +370,16 @@ func (m Model) help() string {
 		left := m.helpLine(
 			[2]string{"a", "add"},
 			[2]string{"e", "edit"},
-			[2]string{"del", "delete"},
+			[2]string{"d", "delete"},
 		)
 		right := m.helpLine(
 			[2]string{"x", "done"},
-			[2]string{"d", "abandon"},
+			[2]string{"b", "abandon"},
 			[2]string{"p", "postpone"},
 		)
 		line1 = alignHelpGroups(m.width, left, right)
 	case viewUpcoming:
-		line1 = m.helpLine([2]string{"e", "edit"}, [2]string{"del", "delete"})
+		line1 = m.helpLine([2]string{"e", "edit"}, [2]string{"d", "delete"})
 	case viewHistory:
 		left := m.helpLine(
 			[2]string{"left/h", "prev day"},

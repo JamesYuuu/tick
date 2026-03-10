@@ -107,6 +107,7 @@ func (s *SQLiteStore) ListActive(ctx context.Context, p store.ListActiveParams) 
 		WHERE status = ? AND due_day %s ?
 		ORDER BY due_day ASC, id ASC`, op)
 
+	// Preserve the historical scanTask error shape for ListActive callers.
 	return s.queryTasksWithScanPrefix(ctx, "list active", false, q, string(domain.StatusActive), p.CurrentDay.String())
 }
 

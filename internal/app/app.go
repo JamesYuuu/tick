@@ -83,7 +83,7 @@ func (a *App) Stats(ctx context.Context, fromDay, toDay domain.Day) (OutcomeRati
 	if err != nil {
 		return OutcomeRatios{}, fmt.Errorf("stats: %w", err)
 	}
-	return mapOutcomeRatios(out), nil
+	return out, nil
 }
 
 func (a *App) HistoryDoneByDay(ctx context.Context, day domain.Day) ([]domain.Task, error) {

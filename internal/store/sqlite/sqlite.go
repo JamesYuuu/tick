@@ -80,53 +80,26 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, title string, createdDay, 
 }
 
 func (s *SQLiteStore) UpdateTitle(ctx context.Context, id int64, title string) error {
-	res, err := s.db.ExecContext(ctx,
+	return s.execAffectingOne(ctx, "update title", id,
 		`UPDATE tasks
 		 SET title = ?
 		 WHERE id = ? AND status = ?`,
 		title, id, string(domain.StatusActive),
 	)
-	if err != nil {
-		return fmt.Errorf("update title: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("update title: %w", err)
-	}
-	if n == 0 {
-		return fmt.Errorf("update title: id=%d: %w", id, sql.ErrNoRows)
-	}
-	return nil
 }
 
 func (s *SQLiteStore) DeleteTask(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx,
+	return s.execAffectingOne(ctx, "delete task", id,
 		`DELETE FROM tasks
 		 WHERE id = ? AND status = ?`,
 		id, string(domain.StatusActive),
 	)
-	if err != nil {
-		return fmt.Errorf("delete task: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("delete task: %w", err)
-	}
-	if n == 0 {
-		return fmt.Errorf("delete task: id=%d: %w", id, sql.ErrNoRows)
-	}
-	return nil
 }
 
 func (s *SQLiteStore) ListActive(ctx context.Context, p store.ListActiveParams) ([]domain.Task, error) {
-	var op string
-	switch p.Window {
-	case store.ActiveDueLTECurrent:
-		op = "<="
-	case store.ActiveDueGTCurrent:
-		op = ">"
-	default:
-		return nil, fmt.Errorf("list active: unknown window %d", p.Window)
+	op, err := activeDueOperator(p.Window)
+	if err != nil {
+		return nil, err
 	}
 
 	q := fmt.Sprintf(`SELECT id, title, status, created_day, due_day, done_day, abandoned_day
@@ -134,24 +107,18 @@ func (s *SQLiteStore) ListActive(ctx context.Context, p store.ListActiveParams) 
 		WHERE status = ? AND due_day %s ?
 		ORDER BY due_day ASC, id ASC`, op)
 
-	rows, err := s.db.QueryContext(ctx, q, string(domain.StatusActive), p.CurrentDay.String())
-	if err != nil {
-		return nil, fmt.Errorf("list active: %w", err)
-	}
-	defer rows.Close()
+	return s.queryTasksWithScanPrefix(ctx, "list active", false, q, string(domain.StatusActive), p.CurrentDay.String())
+}
 
-	var out []domain.Task
-	for rows.Next() {
-		t, err := scanTask(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, t)
+func activeDueOperator(window store.ActiveWindow) (string, error) {
+	switch window {
+	case store.ActiveDueLTECurrent:
+		return "<=", nil
+	case store.ActiveDueGTCurrent:
+		return ">", nil
+	default:
+		return "", fmt.Errorf("list active: unknown window %d", window)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list active: %w", err)
-	}
-	return out, nil
 }
 
 func (s *SQLiteStore) ListActiveByCreatedDay(ctx context.Context, day domain.Day) ([]domain.Task, error) {
@@ -175,7 +142,11 @@ func (s *SQLiteStore) setStatusDay(ctx context.Context, op string, id int64, sta
 	}
 
 	q := fmt.Sprintf(`UPDATE tasks SET status = ?, %s = ?, %s = NULL WHERE id = ?`, dayColumn, clearColumn)
-	res, err := s.db.ExecContext(ctx, q, string(status), day.String(), id)
+	return s.execAffectingOne(ctx, op, id, q, string(status), day.String(), id)
+}
+
+func (s *SQLiteStore) execAffectingOne(ctx context.Context, op string, id int64, q string, args ...any) error {
+	res, err := s.db.ExecContext(ctx, q, args...)
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
@@ -246,6 +217,10 @@ func (s *SQLiteStore) ListAbandonedByDay(ctx context.Context, day domain.Day) ([
 }
 
 func (s *SQLiteStore) queryTasks(ctx context.Context, op, q string, args ...any) ([]domain.Task, error) {
+	return s.queryTasksWithScanPrefix(ctx, op, true, q, args...)
+}
+
+func (s *SQLiteStore) queryTasksWithScanPrefix(ctx context.Context, op string, prefixScanErr bool, q string, args ...any) ([]domain.Task, error) {
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
@@ -256,7 +231,10 @@ func (s *SQLiteStore) queryTasks(ctx context.Context, op, q string, args ...any)
 	for rows.Next() {
 		t, err := scanTask(rows)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", op, err)
+			if prefixScanErr {
+				return nil, fmt.Errorf("%s: %w", op, err)
+			}
+			return nil, err
 		}
 		out = append(out, t)
 	}

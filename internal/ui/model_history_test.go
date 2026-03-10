@@ -136,6 +136,30 @@ func TestRenderHistoryStats_UsesLoadedCollectionCountsInsteadOfRatios(t *testing
 	}
 }
 
+func TestCalcHistoryLayout_UsesSharedDetailHeightFormula(t *testing.T) {
+	day := domain.MustParseDay("2026-03-07")
+	m := NewWithDeps(newFakeApp(day, nil), fakeClock{now: time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	m.view = viewHistory
+	m.width = 80
+	m.height = 18
+	m.historyFrom = addDays(day, -6)
+	m.historyTo = day
+	m.historyIndex = 6
+
+	layout := calcHistoryLayout(m)
+	if layout.innerW != sheetInnerWidth(80) {
+		t.Fatalf("inner width mismatch: got %d want %d", layout.innerW, sheetInnerWidth(80))
+	}
+	selectorH := linesCount(renderHistoryDateTable(m, layout.innerW))
+	wantDetailH := calcLayoutMetrics(m.width, m.height).innerH - (selectorH + 2 + historyStatsBlockHeight(m))
+	if wantDetailH < 0 {
+		wantDetailH = 0
+	}
+	if layout.detailH != wantDetailH {
+		t.Fatalf("detail height mismatch: got %d want %d", layout.detailH, wantDetailH)
+	}
+}
+
 func TestRenderHistoryBody_BottomAnchorsStatsBelowViewportPadding(t *testing.T) {
 	disableTick(t)
 

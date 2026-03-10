@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/JamesYuuu/tick/internal/domain"
+	"github.com/JamesYuuu/tick/internal/store"
 )
 
 func TestQueryTasks_EmptyResult(t *testing.T) {
@@ -55,6 +56,63 @@ func TestSetStatusDay_NotFoundWrapsNoRows(t *testing.T) {
 	err = s.setStatusDay(context.Background(), "mark done", 999, domain.StatusDone, "done_day", domain.MustParseDay("2026-03-05"), "abandoned_day")
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("expected sql.ErrNoRows, got %v", err)
+	}
+}
+
+func TestExecAffectingOne_NotFoundWrapsNoRows(t *testing.T) {
+	s, err := OpenInMemory()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	err = s.execAffectingOne(context.Background(), "delete task", 999, `DELETE FROM tasks WHERE id = ?`, 999)
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected sql.ErrNoRows, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "delete task: id=999") {
+		t.Fatalf("expected contextual id in error, got %v", err)
+	}
+}
+
+func TestActiveDueOperator_RejectsUnknownWindow(t *testing.T) {
+	_, err := activeDueOperator(store.ActiveWindow(99))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "99") {
+		t.Fatalf("expected window value in error, got %v", err)
+	}
+}
+
+func TestListActive_ScanErrorIsNotPrefixedWithListActive(t *testing.T) {
+	s, err := OpenInMemory()
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	_, err = s.db.ExecContext(context.Background(),
+		`INSERT INTO tasks(title, status, created_day, due_day, done_day, abandoned_day)
+		 VALUES(?, ?, ?, ?, NULL, NULL)`,
+		"broken", string(domain.StatusActive), "not-a-day", "2026-03-04",
+	)
+	if err != nil {
+		t.Fatalf("insert malformed row: %v", err)
+	}
+
+	_, err = s.ListActive(context.Background(), store.ListActiveParams{
+		CurrentDay: domain.MustParseDay("2026-03-04"),
+		Window:     store.ActiveDueLTECurrent,
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "scan task:") {
+		t.Fatalf("expected scan task error, got %v", err)
+	}
+	if strings.HasPrefix(err.Error(), "list active: ") {
+		t.Fatalf("expected unprefixed scan error, got %v", err)
 	}
 }
 

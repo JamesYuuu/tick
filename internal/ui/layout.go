@@ -1,5 +1,12 @@
 package ui
 
+const (
+	headerHeight     = 1
+	separatorHeights = 2
+	footerHelpHeight = 2
+	footerHeight     = footerHelpHeight
+)
+
 type layoutMetrics struct {
 	contentW   int
 	innerW     int
@@ -8,7 +15,7 @@ type layoutMetrics struct {
 }
 
 func calcLayoutMetrics(windowW, windowH int) layoutMetrics {
-	workspaceH := windowH - (1 + 1 + 1 + 2)
+	workspaceH := windowH - (headerHeight + separatorHeights + footerHeight)
 	if workspaceH < 0 {
 		workspaceH = 0
 	}

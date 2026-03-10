@@ -88,6 +88,76 @@ func TestApp_Stats_WrapsStoreError(t *testing.T) {
 	}
 }
 
+func TestApp_EditTitle_CallsStore(t *testing.T) {
+	var (
+		called   bool
+		gotID    int64
+		gotTitle string
+	)
+
+	a := &App{store: methodStubStore{
+		updateTitle: func(_ context.Context, id int64, title string) error {
+			called = true
+			gotID = id
+			gotTitle = title
+			return nil
+		},
+	}}
+
+	if err := a.EditTitle(context.Background(), 42, "new title"); err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !called {
+		t.Fatal("expected UpdateTitle to be called")
+	}
+	if gotID != 42 || gotTitle != "new title" {
+		t.Fatalf("expected id/title 42/new title, got %d/%q", gotID, gotTitle)
+	}
+}
+
+func TestApp_EditTitle_RejectsBlankTitle(t *testing.T) {
+	called := false
+
+	a := &App{store: methodStubStore{
+		updateTitle: func(_ context.Context, id int64, title string) error {
+			called = true
+			return nil
+		},
+	}}
+
+	if err := a.EditTitle(context.Background(), 42, " \t\n "); err == nil {
+		t.Fatal("expected blank title to be rejected")
+	}
+	if called {
+		t.Fatal("expected UpdateTitle not to be called")
+	}
+}
+
+func TestApp_Delete_CallsStore(t *testing.T) {
+	var (
+		called bool
+		gotID  int64
+	)
+
+	a := &App{store: methodStubStore{
+		deleteTask: func(_ context.Context, id int64) error {
+			called = true
+			gotID = id
+			return nil
+		},
+	}}
+
+	if err := a.Delete(context.Background(), 7); err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !called {
+		t.Fatal("expected DeleteTask to be called")
+	}
+	if gotID != 7 {
+		t.Fatalf("expected id 7, got %d", gotID)
+	}
+}
+
 func TestMapOutcomeRatios_MapsAllFields(t *testing.T) {
 	in := store.OutcomeRatios{
 		TotalDone:             9,
@@ -111,12 +181,28 @@ func TestMapOutcomeRatios_MapsAllFields(t *testing.T) {
 type methodStubStore struct {
 	listDoneByDay      func(context.Context, domain.Day) ([]domain.Task, error)
 	statsOutcomeRatios func(context.Context, domain.Day, domain.Day) (store.OutcomeRatios, error)
+	updateTitle        func(context.Context, int64, string) error
+	deleteTask         func(context.Context, int64) error
 }
 
 func (s methodStubStore) Close() error { return nil }
 
 func (s methodStubStore) CreateTask(context.Context, string, domain.Day, domain.Day) (domain.Task, error) {
 	return domain.Task{}, errors.New("not implemented")
+}
+
+func (s methodStubStore) UpdateTitle(ctx context.Context, id int64, title string) error {
+	if s.updateTitle != nil {
+		return s.updateTitle(ctx, id, title)
+	}
+	return errors.New("not implemented")
+}
+
+func (s methodStubStore) DeleteTask(ctx context.Context, id int64) error {
+	if s.deleteTask != nil {
+		return s.deleteTask(ctx, id)
+	}
+	return errors.New("not implemented")
 }
 
 func (s methodStubStore) ListActive(context.Context, store.ListActiveParams) ([]domain.Task, error) {

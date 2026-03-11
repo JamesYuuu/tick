@@ -261,19 +261,6 @@ func renderModal(m Model) string {
 	}
 }
 
-func renderInputModal(m Model, title string) string {
-	input := m.addInput
-	input.Width = modalInputWidth(m.width)
-	body := strings.Join([]string{
-		title,
-		"",
-		input.View(),
-		"",
-		m.helpLine([2]string{"enter", "save"}, [2]string{"esc", "cancel"}),
-	}, "\n")
-	return m.styles.Modal.Render(body)
-}
-
 func renderTaskModal(m Model) string {
 	contentWidth := taskModalContentWidth(m.width)
 	dividerWidth := taskModalContentWidth(m.width) - 2
@@ -370,16 +357,4 @@ func taskModalHintLine(m Model, width int) string {
 		return ""
 	}
 	return ansi.Truncate(m.styles.Delayed.Render("delete this task forever?"), width, "")
-}
-
-func renderDeleteModal(m Model) string {
-	title := ansi.Truncate(m.modal.taskTitle, modalTextWidth(m.width), "")
-	body := strings.Join([]string{
-		"Delete task?",
-		"",
-		title,
-		"",
-		m.helpLine([2]string{"y", "delete"}, [2]string{"n", "cancel"}),
-	}, "\n")
-	return m.styles.Modal.Render(body)
 }

@@ -74,15 +74,26 @@ type modalKind int
 
 const (
 	modalKindNone modalKind = iota
-	modalKindAdd
+	modalKindTask
 	modalKindEdit
 	modalKindDelete
+)
+
+type taskModalFocus int
+
+const (
+	taskModalFocusTitle taskModalFocus = iota
+	taskModalFocusSave
+	taskModalFocusCancel
+	taskModalFocusDelete
 )
 
 type modalState struct {
 	kind       modalKind
 	taskID     int64
 	taskTitle  string
+	taskDueDay domain.Day
+	focus      taskModalFocus
 	submitting bool
 }
 
@@ -255,13 +266,15 @@ func (m Model) cmdSubmitModal() tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		switch modal.kind {
-		case modalKindAdd:
-			if _, err := m.app.Add(ctx, title); err != nil {
-				return modalSubmitMsg{err: fmt.Errorf("add: %w", err)}
-			}
-		case modalKindEdit:
-			if err := m.app.EditTitle(ctx, modal.taskID, title); err != nil {
-				return modalSubmitMsg{err: fmt.Errorf("edit: %w", err)}
+		case modalKindTask:
+			if modal.taskID == 0 {
+				if _, err := m.app.Add(ctx, title); err != nil {
+					return modalSubmitMsg{err: fmt.Errorf("add: %w", err)}
+				}
+			} else {
+				if err := m.app.EditTitle(ctx, modal.taskID, title); err != nil {
+					return modalSubmitMsg{err: fmt.Errorf("edit: %w", err)}
+				}
 			}
 		default:
 			return nil
@@ -355,30 +368,61 @@ func (m Model) selectedActiveTask() (domain.Task, bool) {
 }
 
 func (m *Model) openAddModal() {
-	m.modal = modalState{kind: modalKindAdd}
+	m.modal = modalState{kind: modalKindTask, focus: taskModalFocusTitle}
 	m.addInput.SetValue("")
-	m.addInput.Focus()
+	m.addInput.Width = taskModalInputWidth(m.width)
+	m.setTaskModalFocus(taskModalFocusTitle)
 }
 
 func (m *Model) openTaskModal(kind modalKind, task domain.Task) {
-	m.modal = modalState{kind: kind, taskID: task.ID, taskTitle: task.Title}
-	if kind == modalKindEdit {
-		m.addInput.SetValue(task.Title)
-		m.addInput.Focus()
-		return
+	focus := taskModalFocusTitle
+	if kind == modalKindDelete {
+		focus = taskModalFocusDelete
 	}
-
-	m.addInput.Blur()
-	m.addInput.SetValue("")
-	if kind == modalKindAdd {
-		m.addInput.Focus()
+	m.modal = modalState{
+		kind:       modalKindTask,
+		taskID:     task.ID,
+		taskTitle:  task.Title,
+		taskDueDay: task.DueDay,
+		focus:      focus,
 	}
+	m.addInput.SetValue(task.Title)
+	m.addInput.Width = taskModalInputWidth(m.width)
+	m.setTaskModalFocus(focus)
 }
 
 func (m *Model) closeModal() {
 	m.modal = modalState{}
 	m.addInput.Blur()
 	m.addInput.SetValue("")
+	m.addInput.Width = m.modalInputWidth()
+}
+
+func (m *Model) setTaskModalFocus(focus taskModalFocus) {
+	m.modal.focus = focus
+	if focus == taskModalFocusTitle {
+		m.addInput.Focus()
+		return
+	}
+	m.addInput.Blur()
+}
+
+func (m *Model) advanceTaskModalFocus() {
+	next := m.modal.focus + 1
+	if next > taskModalFocusDelete {
+		next = taskModalFocusTitle
+	}
+	if m.modal.taskID == 0 && next == taskModalFocusDelete {
+		next = taskModalFocusTitle
+	}
+	m.setTaskModalFocus(next)
+}
+
+func (m Model) modalInputWidth() int {
+	if m.modal.kind == modalKindTask {
+		return taskModalInputWidth(m.width)
+	}
+	return sheetInnerWidth(m.width)
 }
 
 func modalBlocksKey(keys keyMap, msg tea.KeyMsg) bool {
@@ -402,33 +446,40 @@ func (m Model) handleModalKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
 	}
 
 	switch m.modal.kind {
-	case modalKindAdd, modalKindEdit:
-		if msg.Type == tea.KeyEnter {
-			if m.modal.submitting {
-				return m, nil, true
+	case modalKindTask:
+		if msg.Type == tea.KeyTab {
+			m.advanceTaskModalFocus()
+			m.addInput.Width = taskModalInputWidth(m.width)
+			if m.modal.focus == taskModalFocusTitle {
+				return m, m.addInput.Focus(), true
 			}
-			if strings.TrimSpace(m.addInput.Value()) == "" {
-				return m, nil, true
-			}
-			m.modal.submitting = true
-			return m, m.cmdSubmitModal(), true
+			return m, nil, true
 		}
-		var cmd tea.Cmd
-		m.addInput, cmd = m.addInput.Update(msg)
-		return m, cmd, true
-	case modalKindDelete:
-		if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
-			switch strings.ToLower(string(msg.Runes[0])) {
-			case "y":
+		if msg.Type == tea.KeyEnter {
+			switch m.modal.focus {
+			case taskModalFocusTitle:
+				return m, nil, true
+			case taskModalFocusSave:
+				if m.modal.submitting || strings.TrimSpace(m.addInput.Value()) == "" {
+					return m, nil, true
+				}
+				m.modal.submitting = true
+				return m, m.cmdSubmitModal(), true
+			case taskModalFocusCancel:
+				m.closeModal()
+				return m, nil, true
+			case taskModalFocusDelete:
 				if m.modal.submitting {
 					return m, nil, true
 				}
 				m.modal.submitting = true
 				return m, m.cmdConfirmDelete(), true
-			case "n":
-				m.closeModal()
-				return m, nil, true
 			}
+		}
+		if m.modal.focus == taskModalFocusTitle {
+			var cmd tea.Cmd
+			m.addInput, cmd = m.addInput.Update(msg)
+			return m, cmd, true
 		}
 		if modalBlocksKey(m.keys, msg) {
 			return m, nil, true
@@ -446,7 +497,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		g := calcLayoutMetrics(msg.Width, msg.Height)
 		m.todayList.SetSize(g.innerW, g.innerH)
 		m.upcomingList.SetSize(g.innerW, g.innerH)
-		m.addInput.Width = g.innerW
+		m.addInput.Width = m.modalInputWidth()
 		m.clampHistoryScroll()
 		return m, nil
 	case refreshMsg:
@@ -546,14 +597,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.openAddModal()
-			return m, nil
+			return m, m.addInput.Focus()
 		case key.Matches(msg, m.keys.Edit):
 			task, ok := m.selectedActiveTask()
 			if !ok {
 				return m, nil
 			}
 			m.openTaskModal(modalKindEdit, task)
-			return m, nil
+			return m, m.addInput.Focus()
 		case key.Matches(msg, m.keys.Delete):
 			task, ok := m.selectedActiveTask()
 			if !ok {
@@ -625,6 +676,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.cmdRefreshHistoryWithStats()
 			}
 		}
+	}
+
+	if m.modal.kind == modalKindTask && m.modal.focus == taskModalFocusTitle {
+		var cmd tea.Cmd
+		m.addInput, cmd = m.addInput.Update(msg)
+		return m, cmd
 	}
 
 	var cmd tea.Cmd
@@ -717,8 +774,8 @@ func (m Model) View() string {
 	if g.innerW > 0 {
 		m.todayList.SetSize(g.innerW, g.innerH)
 		m.upcomingList.SetSize(g.innerW, g.innerH)
-		// Prefer sizing in WindowSizeMsg, but keep addInput stable if View runs first.
-		m.addInput.Width = g.innerW
+		// Prefer sizing in WindowSizeMsg, but keep the active modal input stable if View runs first.
+		m.addInput.Width = m.modalInputWidth()
 	}
 	frameBody := forceHeight(body, g.innerH)
 	workspace := m.sheetFrame(frameBody, g.contentW)
@@ -736,7 +793,6 @@ func (m Model) View() string {
 	b.WriteString(footer)
 
 	out := b.String()
-	out = renderOverlay(out, renderModal(m), g.contentW, m.height)
 	out = forceHeight(out, m.height)
 	out = clipLinesToWidth(out, g.contentW)
 	out = padLeftToWidth(out, m.width)

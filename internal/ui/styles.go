@@ -405,6 +405,51 @@ func modalTextWidth(windowWidth int) int {
 	return w
 }
 
+const taskModalFixedWidth = 54
+
+func taskModalBodyWidth(windowWidth int) int {
+	max := contentWidth(windowWidth) - 4
+	if max < 0 {
+		return 0
+	}
+	if max < taskModalFixedWidth {
+		return max
+	}
+	return taskModalFixedWidth
+}
+
+func taskModalContentWidth(windowWidth int) int {
+	w := taskModalBodyWidth(windowWidth) - 2
+	if w < 0 {
+		return 0
+	}
+	return w
+}
+
+func taskModalTextWidth(windowWidth int) int {
+	w := taskModalContentWidth(windowWidth) - 4
+	if w < 0 {
+		return 0
+	}
+	return w
+}
+
+func taskModalInputWidth(windowWidth int) int {
+	w := taskModalTextWidth(windowWidth)
+	if w < 0 {
+		return 0
+	}
+	return w
+}
+
+func taskModalInputBlockWidth(windowWidth int) int {
+	w := taskModalContentWidth(windowWidth) - 2
+	if w < 0 {
+		return 0
+	}
+	return w
+}
+
 func modalInputWidth(windowWidth int) int {
 	w := modalTextWidth(windowWidth) - 2
 	if w < 8 {

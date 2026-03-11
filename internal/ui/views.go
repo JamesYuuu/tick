@@ -5,10 +5,15 @@ import (
 	"strings"
 
 	"github.com/JamesYuuu/tick/internal/domain"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
 func renderTodayBody(m Model) string {
+	if m.modal.kind == modalKindTask {
+		g := calcLayoutMetrics(m.width, m.height)
+		return centerInBox(renderModal(m), g.innerW, g.innerH)
+	}
 	if len(m.todayList.Items()) == 0 {
 		return renderCenteredEmpty(m, "Nothing due today.")
 	}
@@ -16,6 +21,10 @@ func renderTodayBody(m Model) string {
 }
 
 func renderUpcomingBody(m Model) string {
+	if m.modal.kind == modalKindTask {
+		g := calcLayoutMetrics(m.width, m.height)
+		return centerInBox(renderModal(m), g.innerW, g.innerH)
+	}
 	if len(m.upcomingList.Items()) == 0 {
 		return renderCenteredEmpty(m, "No upcoming tasks.")
 	}
@@ -245,12 +254,8 @@ func linesCount(s string) int {
 
 func renderModal(m Model) string {
 	switch m.modal.kind {
-	case modalKindAdd:
-		return renderInputModal(m, "Add task")
-	case modalKindEdit:
-		return renderInputModal(m, "Edit task")
-	case modalKindDelete:
-		return renderDeleteModal(m)
+	case modalKindTask:
+		return renderTaskModal(m)
 	default:
 		return ""
 	}
@@ -267,6 +272,104 @@ func renderInputModal(m Model, title string) string {
 		m.helpLine([2]string{"enter", "save"}, [2]string{"esc", "cancel"}),
 	}, "\n")
 	return m.styles.Modal.Render(body)
+}
+
+func renderTaskModal(m Model) string {
+	contentWidth := taskModalContentWidth(m.width)
+	dividerWidth := taskModalContentWidth(m.width) - 2
+
+	bodyLines := []string{
+		"",
+		centerLinesInWidth(lipgloss.NewStyle().Bold(true).Render(taskModalTitle(m)), contentWidth),
+		"",
+		taskModalInputBlock(m),
+		"",
+		centerLinesInWidth(taskModalActionsLine(m), contentWidth),
+		"",
+	}
+	if hint := taskModalHintLine(m, dividerWidth); hint != "" {
+		bodyLines = append(bodyLines, centerLinesInWidth(hint, contentWidth))
+	}
+	bodyLines = append(bodyLines, taskModalDivider(dividerWidth), centerLinesInWidth(m.styles.Help.Render("tab:next action  enter:confirm  esc:close"), contentWidth))
+	body := strings.Join(bodyLines, "\n")
+	style := m.styles.Modal.Width(contentWidth).Height(len(bodyLines))
+	return style.Render(body)
+}
+
+func taskModalTitle(m Model) string {
+	if m.modal.taskID == 0 {
+		return "Add Task"
+	}
+	return "Edit Task"
+}
+
+func taskModalInputView(m Model) string {
+	input := m.addInput
+	input.Width = taskModalInputWidth(m.width)
+	bg := lipgloss.Color("239")
+	input.PromptStyle = lipgloss.NewStyle().Background(bg)
+	input.TextStyle = lipgloss.NewStyle().Background(bg)
+	input.PlaceholderStyle = m.styles.Tab.Copy().Background(bg)
+	input.Cursor.TextStyle = lipgloss.NewStyle().Background(bg)
+	return input.View()
+}
+
+func taskModalInputBlock(m Model) string {
+	blockWidth := taskModalInputBlockWidth(m.width)
+	fill := lipgloss.NewStyle().
+		Background(lipgloss.Color("239")).
+		Width(blockWidth)
+	fillInline := lipgloss.NewStyle().Background(lipgloss.Color("239"))
+	line := taskModalInputView(m)
+	line = strings.TrimRight(line, " ")
+	lineWidth := ansi.StringWidth(line)
+	if lineWidth > blockWidth {
+		line = ansi.Truncate(line, blockWidth, "")
+		lineWidth = blockWidth
+	}
+	padding := strings.Repeat(" ", blockWidth-lineWidth)
+
+	return strings.Join([]string{
+		fill.Render(""),
+		line + fillInline.Render(padding),
+		fill.Render(""),
+	}, "\n")
+}
+
+func taskModalDivider(width int) string {
+	if width <= 0 {
+		return ""
+	}
+	return strings.Repeat("-", width)
+}
+
+func taskModalActionsLine(m Model) string {
+	parts := []string{
+		taskModalActionLabel(m, taskModalFocusSave, "Save", false),
+		taskModalActionLabel(m, taskModalFocusCancel, "Cancel", false),
+	}
+	if m.modal.taskID != 0 {
+		parts = append(parts, taskModalActionLabel(m, taskModalFocusDelete, "Delete", true))
+	}
+	return strings.Join(parts, "      ")
+}
+
+func taskModalActionLabel(m Model, focus taskModalFocus, label string, danger bool) string {
+	token := "[" + label + "]"
+	if danger {
+		token = m.styles.Delayed.Render(token)
+	}
+	if m.modal.focus == focus {
+		return m.styles.Reverse.Render(token)
+	}
+	return token
+}
+
+func taskModalHintLine(m Model, width int) string {
+	if m.modal.focus != taskModalFocusDelete {
+		return ""
+	}
+	return ansi.Truncate(m.styles.Delayed.Render("delete this task forever?"), width, "")
 }
 
 func renderDeleteModal(m Model) string {

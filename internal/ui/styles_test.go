@@ -71,3 +71,15 @@ func TestDefaultStyles_DelayedUsesTerracottaForeground(t *testing.T) {
 		t.Fatalf("expected selected delayed style to use ANSI 256 terracotta foreground, got %q", got)
 	}
 }
+
+func TestTaskModalBodyWidth_ClampsToAvailableWidth(t *testing.T) {
+	for _, windowWidth := range []int{20, 30, 40} {
+		max := contentWidth(windowWidth) - 4
+		if max < 0 {
+			max = 0
+		}
+		if got := taskModalBodyWidth(windowWidth); got > max {
+			t.Fatalf("expected task modal width <= %d at window width %d, got %d", max, windowWidth, got)
+		}
+	}
+}

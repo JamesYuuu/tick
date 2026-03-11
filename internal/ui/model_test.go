@@ -319,8 +319,8 @@ func TestModel_Today_AddOpensAddModal(t *testing.T) {
 	um, _ := m.Update(keyRune('a'))
 	m = um.(Model)
 
-	if m.modal.kind != modalKindAdd {
-		t.Fatalf("expected add modal, got %v", m.modal.kind)
+	if m.modal.kind != modalKindTask {
+		t.Fatalf("expected unified task modal, got %v", m.modal.kind)
 	}
 	if m.modal.taskID != 0 {
 		t.Fatalf("expected add modal task id to be empty, got %d", m.modal.taskID)
@@ -330,6 +330,9 @@ func TestModel_Today_AddOpensAddModal(t *testing.T) {
 	}
 	if m.addInput.Value() != "" {
 		t.Fatalf("expected add modal input to start empty, got %q", m.addInput.Value())
+	}
+	if m.modal.focus != taskModalFocusTitle {
+		t.Fatalf("expected add modal to focus title, got %v", m.modal.focus)
 	}
 }
 
@@ -349,8 +352,8 @@ func TestModel_Upcoming_EditOpensEditModalWithPrefilledTitle(t *testing.T) {
 	um, _ = m.Update(keyRune('e'))
 	m = um.(Model)
 
-	if m.modal.kind != modalKindEdit {
-		t.Fatalf("expected edit modal, got %v", m.modal.kind)
+	if m.modal.kind != modalKindTask {
+		t.Fatalf("expected task modal, got %v", m.modal.kind)
 	}
 	if m.modal.taskID != upcoming.ID {
 		t.Fatalf("expected edit modal task id %d, got %d", upcoming.ID, m.modal.taskID)
@@ -360,6 +363,9 @@ func TestModel_Upcoming_EditOpensEditModalWithPrefilledTitle(t *testing.T) {
 	}
 	if m.addInput.Value() != upcoming.Title {
 		t.Fatalf("expected edit input prefilled with %q, got %q", upcoming.Title, m.addInput.Value())
+	}
+	if m.modal.focus != taskModalFocusTitle {
+		t.Fatalf("expected edit modal to focus title, got %v", m.modal.focus)
 	}
 }
 
@@ -392,7 +398,7 @@ func TestModel_History_EditDoesNothing(t *testing.T) {
 	}
 }
 
-func TestModel_Upcoming_DeleteOpensDeleteModal(t *testing.T) {
+func TestModel_Upcoming_DeleteOpensUnifiedTaskModal(t *testing.T) {
 	disableTick(t)
 
 	current := domain.MustParseDay("2026-03-04")
@@ -408,8 +414,8 @@ func TestModel_Upcoming_DeleteOpensDeleteModal(t *testing.T) {
 	um, _ = m.Update(keyRune('d'))
 	m = um.(Model)
 
-	if m.modal.kind != modalKindDelete {
-		t.Fatalf("expected delete modal, got %v", m.modal.kind)
+	if m.modal.kind != modalKindTask {
+		t.Fatalf("expected task modal, got %v", m.modal.kind)
 	}
 	if m.modal.taskID != upcoming.ID {
 		t.Fatalf("expected delete modal task id %d, got %d", upcoming.ID, m.modal.taskID)
@@ -417,12 +423,15 @@ func TestModel_Upcoming_DeleteOpensDeleteModal(t *testing.T) {
 	if m.modal.taskTitle != upcoming.Title {
 		t.Fatalf("expected delete modal task title %q, got %q", upcoming.Title, m.modal.taskTitle)
 	}
-	if m.addInput.Value() != "" {
-		t.Fatalf("expected delete modal to leave text input empty, got %q", m.addInput.Value())
+	if m.addInput.Value() != upcoming.Title {
+		t.Fatalf("expected delete modal to reuse task title input %q, got %q", upcoming.Title, m.addInput.Value())
+	}
+	if m.modal.focus != taskModalFocusDelete {
+		t.Fatalf("expected delete open to focus delete action, got %v", m.modal.focus)
 	}
 }
 
-func TestModel_DeleteModal_BlockedGlobalKeysStayInModal(t *testing.T) {
+func TestModel_TaskModal_BlockedGlobalKeysStayInModal(t *testing.T) {
 	disableTick(t)
 
 	current := domain.MustParseDay("2026-03-04")
@@ -436,7 +445,6 @@ func TestModel_DeleteModal_BlockedGlobalKeysStayInModal(t *testing.T) {
 		{name: "edit", key: keyRune('e')},
 		{name: "delete", key: keyRune('d')},
 		{name: "add", key: keyRune('a')},
-		{name: "next view", key: keyTab()},
 	}
 
 	for _, tc := range tests {
@@ -449,8 +457,8 @@ func TestModel_DeleteModal_BlockedGlobalKeysStayInModal(t *testing.T) {
 
 			um, _ := m.Update(keyRune('d'))
 			m = um.(Model)
-			if m.modal.kind != modalKindDelete {
-				t.Fatalf("expected delete modal open before blocked key, got %v", m.modal.kind)
+			if m.modal.kind != modalKindTask {
+				t.Fatalf("expected task modal open before blocked key, got %v", m.modal.kind)
 			}
 
 			um, cmd := m.Update(tc.key)
@@ -459,8 +467,8 @@ func TestModel_DeleteModal_BlockedGlobalKeysStayInModal(t *testing.T) {
 			if cmd != nil {
 				t.Fatalf("expected no command for blocked key %q while delete modal is open", tc.name)
 			}
-			if m.modal.kind != modalKindDelete {
-				t.Fatalf("expected delete modal to stay open for blocked key %q, got %v", tc.name, m.modal.kind)
+			if m.modal.kind != modalKindTask {
+				t.Fatalf("expected task modal to stay open for blocked key %q, got %v", tc.name, m.modal.kind)
 			}
 			if m.view != viewToday {
 				t.Fatalf("expected blocked key %q to keep current view, got %v", tc.name, m.view)
@@ -480,6 +488,7 @@ func TestModel_InputModal_Table(t *testing.T) {
 			name:                   "add submit",
 			open:                   func(m *Model, _ domain.Task) { m.openAddModal() },
 			input:                  "new task",
+			preKeys:                []tea.KeyMsg{keyTab()},
 			key:                    keyEnter(),
 			wantOpen:               false,
 			wantCmd:                true,
@@ -501,6 +510,7 @@ func TestModel_InputModal_Table(t *testing.T) {
 			open:                   func(m *Model, task domain.Task) { m.openTaskModal(modalKindEdit, task) },
 			seed:                   []domain.Task{{ID: 1, Title: "old", Status: domain.StatusActive, CreatedDay: domain.MustParseDay("2026-03-04"), DueDay: domain.MustParseDay("2026-03-04")}},
 			input:                  "renamed",
+			preKeys:                []tea.KeyMsg{keyTab()},
 			key:                    keyEnter(),
 			wantOpen:               false,
 			wantCmd:                true,
@@ -542,6 +552,8 @@ func TestModel_AddModal_ClosesWhenRefreshFailsAfterSuccessfulAdd(t *testing.T) {
 	um, _ := m.Update(keyRune('a'))
 	m = um.(Model)
 	m.addInput.SetValue("new task")
+	um, _ = m.Update(keyTab())
+	m = um.(Model)
 	um, cmd := m.Update(keyEnter())
 	m = um.(Model)
 
@@ -595,7 +607,7 @@ func TestModel_AddModal_EnterWithEmptyTitleDoesNothing(t *testing.T) {
 	if len(a.addedTitles) != 0 {
 		t.Fatalf("expected no add call for empty title, got %#v", a.addedTitles)
 	}
-	if m.modal.kind != modalKindAdd {
+	if m.modal.kind != modalKindTask {
 		t.Fatalf("expected add modal to stay open for empty title, got %v", m.modal.kind)
 	}
 }
@@ -621,7 +633,7 @@ func TestModel_AddModal_AllowsBoundRunesAsInput(t *testing.T) {
 	if m.addInput.Value() != letters {
 		t.Fatalf("expected add modal to accept bound runes as input %q, got %q", letters, m.addInput.Value())
 	}
-	if m.modal.kind != modalKindAdd {
+	if m.modal.kind != modalKindTask {
 		t.Fatalf("expected add modal to remain open, got %v", m.modal.kind)
 	}
 }
@@ -648,7 +660,7 @@ func TestModel_EditModal_EnterWithEmptyTitleDoesNothing(t *testing.T) {
 	if len(a.editedTasks) != 0 {
 		t.Fatalf("expected no edit call for empty title, got %#v", a.editedTasks)
 	}
-	if m.modal.kind != modalKindEdit {
+	if m.modal.kind != modalKindTask {
 		t.Fatalf("expected edit modal to stay open for empty title, got %v", m.modal.kind)
 	}
 }
@@ -676,12 +688,71 @@ func TestModel_EditModal_BackspaceEditsInput(t *testing.T) {
 	if after != before[:len(before)-1] {
 		t.Fatalf("expected backspace to edit input from %q to %q, got %q", before, before[:len(before)-1], after)
 	}
-	if m.modal.kind != modalKindEdit {
+	if m.modal.kind != modalKindTask {
 		t.Fatalf("expected edit modal to remain open, got %v", m.modal.kind)
 	}
 }
 
-func TestModel_DeleteModal_YConfirmsDelete(t *testing.T) {
+func TestModel_TaskModal_TabCyclesTitleSaveCancelDelete(t *testing.T) {
+	disableTick(t)
+
+	current := domain.MustParseDay("2026-03-04")
+	task := domain.Task{ID: 7, Title: "write tests", Status: domain.StatusActive, CreatedDay: current, DueDay: current}
+	a := newFakeApp(current, []domain.Task{task})
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	m = applyCmd(m, m.Init())
+
+	um, _ := m.Update(keyRune('e'))
+	m = um.(Model)
+
+	for _, want := range []taskModalFocus{taskModalFocusTitle, taskModalFocusSave, taskModalFocusCancel, taskModalFocusDelete, taskModalFocusTitle} {
+		if m.modal.focus != want {
+			t.Fatalf("expected focus %v, got %v", want, m.modal.focus)
+		}
+		um, _ = m.Update(keyTab())
+		m = um.(Model)
+	}
+}
+
+func TestModel_TaskModal_SaveRequiresFocusOnSaveButton(t *testing.T) {
+	disableTick(t)
+
+	current := domain.MustParseDay("2026-03-04")
+	task := domain.Task{ID: 7, Title: "write tests", Status: domain.StatusActive, CreatedDay: current, DueDay: current}
+	a := newFakeApp(current, []domain.Task{task})
+
+	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+	m = applyCmd(m, m.Init())
+
+	um, _ := m.Update(keyRune('e'))
+	m = um.(Model)
+	m.addInput.SetValue("beta")
+
+	um, cmd := m.Update(keyEnter())
+	m = um.(Model)
+	if cmd != nil {
+		t.Fatalf("expected enter on title field to not submit")
+	}
+	if len(a.editedTasks) != 0 {
+		t.Fatalf("expected no edit call before focusing save, got %#v", a.editedTasks)
+	}
+
+	um, _ = m.Update(keyTab())
+	m = um.(Model)
+	um, cmd = m.Update(keyEnter())
+	m = um.(Model)
+	if cmd == nil {
+		t.Fatalf("expected enter on save to submit")
+	}
+	um, _ = m.Update(cmd())
+	m = um.(Model)
+	if len(a.editedTasks) != 1 || a.editedTasks[0] != (editedTaskCall{id: task.ID, title: "beta"}) {
+		t.Fatalf("expected exactly one edit call %#v, got %#v", editedTaskCall{id: task.ID, title: "beta"}, a.editedTasks)
+	}
+}
+
+func TestModel_TaskModal_DeleteRequiresFocusOnDeleteButton(t *testing.T) {
 	disableTick(t)
 
 	current := domain.MustParseDay("2026-03-04")
@@ -697,14 +768,11 @@ func TestModel_DeleteModal_YConfirmsDelete(t *testing.T) {
 
 	um, _ = m.Update(keyRune('d'))
 	m = um.(Model)
-	um, cmd = m.Update(keyRune('y'))
-	m = um.(Model)
 
+	um, cmd = m.Update(keyEnter())
+	m = um.(Model)
 	if cmd == nil {
-		t.Fatalf("expected delete confirm command")
-	}
-	if m.modal.submitting != true {
-		t.Fatalf("expected delete modal to enter submitting state")
+		t.Fatalf("expected enter on focused delete to submit")
 	}
 
 	um, _ = m.Update(cmd())
@@ -727,7 +795,7 @@ func TestModel_DeleteModal_YConfirmsDelete(t *testing.T) {
 	}
 }
 
-func TestModel_DeleteModal_NCancels(t *testing.T) {
+func TestModel_TaskModal_CancelButtonClosesWithoutMutation(t *testing.T) {
 	disableTick(t)
 
 	current := domain.MustParseDay("2026-03-04")
@@ -737,19 +805,23 @@ func TestModel_DeleteModal_NCancels(t *testing.T) {
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
 	m = applyCmd(m, m.Init())
 
-	um, _ := m.Update(keyRune('d'))
+	um, _ := m.Update(keyRune('e'))
 	m = um.(Model)
-	um, cmd := m.Update(keyRune('n'))
+	um, _ = m.Update(keyTab())
+	m = um.(Model)
+	um, _ = m.Update(keyTab())
+	m = um.(Model)
+	um, cmd := m.Update(keyEnter())
 	m = um.(Model)
 
 	if cmd != nil {
-		t.Fatalf("expected no command when canceling delete modal")
+		t.Fatalf("expected no command when canceling task modal")
 	}
-	if len(a.deletedIDs) != 0 {
-		t.Fatalf("expected delete modal cancel to skip delete, got %#v", a.deletedIDs)
+	if len(a.deletedIDs) != 0 || len(a.editedTasks) != 0 {
+		t.Fatalf("expected cancel to skip mutations, got delete=%#v edit=%#v", a.deletedIDs, a.editedTasks)
 	}
 	if m.modal.kind != modalKindNone {
-		t.Fatalf("expected delete modal closed after n, got %v", m.modal.kind)
+		t.Fatalf("expected task modal closed after cancel, got %v", m.modal.kind)
 	}
 	if listLen(m.todayList) != 1 {
 		t.Fatalf("expected today list unchanged after cancel, got %d items", listLen(m.todayList))
@@ -785,7 +857,7 @@ func TestModel_DeleteModal_EscCancels(t *testing.T) {
 	}
 }
 
-func TestModel_View_RendersCenteredAddModal(t *testing.T) {
+func TestModel_View_RendersAddModalSmoke(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.Ascii)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 	disableTick(t)
@@ -806,28 +878,33 @@ func TestModel_View_RendersCenteredAddModal(t *testing.T) {
 
 	var modalLine string
 	for _, line := range lines {
-		if strings.Contains(line, "| Add task") {
+		if strings.Contains(line, "Add Task") {
 			modalLine = line
 			break
 		}
 	}
 	if modalLine == "" {
-		t.Fatalf("expected centered add modal header in view, got %q", out)
+		t.Fatalf("expected unified modal header in view, got %q", out)
 	}
-
-	leftPad := strings.Index(modalLine, "| Add task")
-	if leftPad < 18 {
-		t.Fatalf("expected add modal to be visibly centered, got left pad %d in line %q", leftPad, modalLine)
+	for _, want := range []string{"> Add task", "[Save]", "[Cancel]"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected unified add modal content %q in view, got %q", want, out)
+		}
 	}
-	if !strings.Contains(out, "| >") {
-		t.Fatalf("expected add modal input row in view, got %q", out)
+	for _, unwanted := range []string{"| Title", "| Actions"} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("expected add modal to avoid label %q, got %q", unwanted, out)
+		}
 	}
-	if !strings.Contains(out, "enter:save  esc:cancel") {
-		t.Fatalf("expected lowercase add modal actions in view, got %q", out)
+	if strings.Contains(out, "[Delete]") {
+		t.Fatalf("expected add modal to hide delete action, got %q", out)
+	}
+	if !strings.Contains(out, "tab:next action  enter:confirm  esc:close") {
+		t.Fatalf("expected unified add modal footer actions in view, got %q", out)
 	}
 }
 
-func TestModel_View_RendersDeleteModalCopy(t *testing.T) {
+func TestModel_View_RendersUnifiedTaskModalSmoke(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.Ascii)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 	disableTick(t)
@@ -845,9 +922,14 @@ func TestModel_View_RendersDeleteModalCopy(t *testing.T) {
 	m = um.(Model)
 
 	out := m.View()
-	for _, want := range []string{"Delete task?", "write tests", "y:delete  n:cancel"} {
+	for _, want := range []string{"Edit Task", "write tests", "delete this task forever?"} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("expected delete modal copy %q in view, got %q", want, out)
+			t.Fatalf("expected task modal copy %q in view, got %q", want, out)
+		}
+	}
+	for _, unwanted := range []string{"Title", "Actions"} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("expected task modal to avoid label %q, got %q", unwanted, out)
 		}
 	}
 }
@@ -1085,6 +1167,8 @@ func TestModel_TaskModal_IgnoresDuplicateSubmitWhileInFlight(t *testing.T) {
 		um, _ := m.Update(keyRune('a'))
 		m = um.(Model)
 		m.addInput.SetValue("new task")
+		um, _ = m.Update(keyTab())
+		m = um.(Model)
 
 		um, firstCmd := m.Update(keyEnter())
 		m = um.(Model)
@@ -1116,6 +1200,8 @@ func TestModel_TaskModal_IgnoresDuplicateSubmitWhileInFlight(t *testing.T) {
 		um, _ := m.Update(keyRune('e'))
 		m = um.(Model)
 		m.addInput.SetValue("beta")
+		um, _ = m.Update(keyTab())
+		m = um.(Model)
 
 		um, firstCmd := m.Update(keyEnter())
 		m = um.(Model)
@@ -1147,13 +1233,13 @@ func TestModel_TaskModal_IgnoresDuplicateSubmitWhileInFlight(t *testing.T) {
 		um, _ := m.Update(keyRune('d'))
 		m = um.(Model)
 
-		um, firstCmd := m.Update(keyRune('y'))
+		um, firstCmd := m.Update(keyEnter())
 		m = um.(Model)
 		if firstCmd == nil {
 			t.Fatalf("expected first delete confirm command")
 		}
 
-		um, secondCmd := m.Update(keyRune('y'))
+		um, secondCmd := m.Update(keyEnter())
 		m = um.(Model)
 		if secondCmd != nil {
 			t.Fatalf("expected duplicate delete confirm to be ignored")
@@ -1168,7 +1254,7 @@ func TestModel_TaskModal_IgnoresDuplicateSubmitWhileInFlight(t *testing.T) {
 	})
 }
 
-func TestModel_Today_EditModal_DoesNotReplaceBodyYet(t *testing.T) {
+func TestModel_Today_EditModal_ReplacesBodyWithCenteredModal(t *testing.T) {
 	disableTick(t)
 
 	current := domain.MustParseDay("2026-03-04")
@@ -1182,15 +1268,15 @@ func TestModel_Today_EditModal_DoesNotReplaceBodyYet(t *testing.T) {
 	um, _ = m.Update(keyRune('e'))
 	m = um.(Model)
 
-	if m.modal.kind != modalKindEdit {
+	if m.modal.kind != modalKindTask {
 		t.Fatalf("expected edit modal open, got %v", m.modal.kind)
 	}
 	body := renderTodayBody(m)
-	if strings.Contains(body, "Add task") {
-		t.Fatalf("expected edit modal state to not reuse add body rendering, got %q", body)
+	if !strings.Contains(body, "Edit Task") {
+		t.Fatalf("expected centered modal body while task modal is open, got %q", body)
 	}
-	if !strings.Contains(body, "first") {
-		t.Fatalf("expected today list body to remain visible before overlay rendering, got %q", body)
+	if !strings.Contains(body, "[Save]") {
+		t.Fatalf("expected modal actions to be part of centered body, got %q", body)
 	}
 }
 
@@ -1205,7 +1291,7 @@ func TestModel_ModalOpen_SuspendsDoneAction(t *testing.T) {
 	um, _ := m.Update(keyRune('a'))
 	m = um.(Model)
 
-	if m.modal.kind != modalKindAdd {
+	if m.modal.kind != modalKindTask {
 		t.Fatalf("expected add modal open, got %v", m.modal.kind)
 	}
 	um, _ = m.Update(keyRune('x'))
@@ -1569,6 +1655,7 @@ func TestModel_View_UsesFixedZoneLinePositions_80x24(t *testing.T) {
 func TestModel_View_NarrowWidth_DoesNotOverflowContentWidth(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.Ascii)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+	disableTick(t)
 
 	day := domain.MustParseDay("2026-03-04")
 	a := newFakeApp(day, []domain.Task{{ID: 1, Title: "a very very very very very long task title", Status: domain.StatusActive, CreatedDay: day, DueDay: day}})

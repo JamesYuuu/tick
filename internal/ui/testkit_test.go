@@ -11,6 +11,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+func init() {
+	tickEvery = 0
+}
+
 func disableTick(t interface{ Cleanup(func()) }) {
 	orig := tickEvery
 	tickEvery = 0
@@ -66,11 +70,25 @@ type editedTaskCall struct {
 	title string
 }
 
+func TestApplyCmd_HandlesDelayedCommand(t *testing.T) {
+	m := NewWithDeps(newFakeApp(domain.MustParseDay("2026-03-04"), nil), fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
+
+	m = applyCmd(m, func() tea.Msg {
+		time.Sleep(30 * time.Millisecond)
+		return tea.WindowSizeMsg{Width: 77, Height: 23}
+	})
+
+	if m.width != 77 || m.height != 23 {
+		t.Fatalf("expected delayed command to update model size to 77x23, got %dx%d", m.width, m.height)
+	}
+}
+
 type inputModalCase struct {
 	name                   string
 	open                   func(*Model, domain.Task)
 	seed                   []domain.Task
 	input                  string
+	preKeys                []tea.KeyMsg
 	key                    tea.KeyMsg
 	wantOpen               bool
 	wantAdded              []string
@@ -310,7 +328,9 @@ func execBatchCmds(cmd tea.Cmd) []tea.Msg {
 			if subCmd == nil {
 				continue
 			}
-			out = append(out, subCmd())
+			if msg := subCmd(); msg != nil {
+				out = append(out, msg)
+			}
 		}
 		return out
 	}
@@ -350,6 +370,13 @@ func runModalCase(t *testing.T, tc inputModalCase) {
 	}
 	tc.open(&m, task)
 	m.addInput.SetValue(tc.input)
+	for _, key := range tc.preKeys {
+		um, cmd := m.Update(key)
+		m = um.(Model)
+		if cmd != nil {
+			t.Fatalf("expected no command for pre key %+v", key)
+		}
+	}
 
 	um, cmd := m.Update(tc.key)
 	m = um.(Model)

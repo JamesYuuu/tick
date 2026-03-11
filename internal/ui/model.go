@@ -75,8 +75,6 @@ type modalKind int
 const (
 	modalKindNone modalKind = iota
 	modalKindTask
-	modalKindEdit
-	modalKindDelete
 )
 
 type taskModalFocus int
@@ -91,8 +89,6 @@ const (
 type modalState struct {
 	kind       modalKind
 	taskID     int64
-	taskTitle  string
-	taskDueDay domain.Day
 	focus      taskModalFocus
 	submitting bool
 }
@@ -198,21 +194,27 @@ func (m Model) tickCmd() tea.Cmd {
 }
 
 type refreshMsg struct {
-	today    []domain.Task
-	upcoming []domain.Task
-	err      error
+	today       []domain.Task
+	upcoming    []domain.Task
+	hasToday    bool
+	hasUpcoming bool
+	err         error
 }
 
 type activeListsResult struct {
-	today    []domain.Task
-	upcoming []domain.Task
+	today       []domain.Task
+	upcoming    []domain.Task
+	hasToday    bool
+	hasUpcoming bool
 }
 
 type modalSubmitMsg struct {
-	today    []domain.Task
-	upcoming []domain.Task
-	err      error
-	close    bool
+	today       []domain.Task
+	upcoming    []domain.Task
+	hasToday    bool
+	hasUpcoming bool
+	err         error
+	close       bool
 }
 
 type deleteModalSubmitMsg struct {
@@ -220,101 +222,6 @@ type deleteModalSubmitMsg struct {
 	tasks []domain.Task
 	err   error
 	close bool
-}
-
-func (m Model) loadActiveLists(ctx context.Context) (activeListsResult, error) {
-	today, err := m.app.Today(ctx)
-	if err != nil {
-		return activeListsResult{}, fmt.Errorf("today: %w", err)
-	}
-	upcoming, err := m.app.Upcoming(ctx)
-	if err != nil {
-		return activeListsResult{}, fmt.Errorf("upcoming: %w", err)
-	}
-	return activeListsResult{today: today, upcoming: upcoming}, nil
-}
-
-func (m Model) cmdRefreshActive() tea.Cmd {
-	return func() tea.Msg {
-		ctx := context.Background()
-		lists, err := m.loadActiveLists(ctx)
-		if err != nil {
-			return refreshMsg{err: err}
-		}
-		return refreshMsg{today: lists.today, upcoming: lists.upcoming}
-	}
-}
-
-func (m Model) cmdActThenRefresh(prefix string, act func(ctx context.Context) error) tea.Cmd {
-	return func() tea.Msg {
-		ctx := context.Background()
-		if err := act(ctx); err != nil {
-			return refreshMsg{err: fmt.Errorf("%s: %w", prefix, err)}
-		}
-		lists, err := m.loadActiveLists(ctx)
-		if err != nil {
-			return refreshMsg{err: err}
-		}
-		return refreshMsg{today: lists.today, upcoming: lists.upcoming}
-	}
-}
-
-func (m Model) cmdSubmitModal() tea.Cmd {
-	modal := m.modal
-	title := strings.TrimSpace(m.addInput.Value())
-
-	return func() tea.Msg {
-		ctx := context.Background()
-		switch modal.kind {
-		case modalKindTask:
-			if modal.taskID == 0 {
-				if _, err := m.app.Add(ctx, title); err != nil {
-					return modalSubmitMsg{err: fmt.Errorf("add: %w", err)}
-				}
-			} else {
-				if err := m.app.EditTitle(ctx, modal.taskID, title); err != nil {
-					return modalSubmitMsg{err: fmt.Errorf("edit: %w", err)}
-				}
-			}
-		default:
-			return nil
-		}
-
-		lists, err := m.loadActiveLists(ctx)
-		if err != nil {
-			return modalSubmitMsg{err: err, close: true}
-		}
-		return modalSubmitMsg{today: lists.today, upcoming: lists.upcoming, close: true}
-	}
-}
-
-func (m Model) cmdConfirmDelete() tea.Cmd {
-	modal := m.modal
-	currentView := m.view
-
-	return func() tea.Msg {
-		ctx := context.Background()
-		if err := m.app.Delete(ctx, modal.taskID); err != nil {
-			return deleteModalSubmitMsg{view: currentView, err: fmt.Errorf("delete: %w", err)}
-		}
-
-		switch currentView {
-		case viewToday:
-			today, err := m.app.Today(ctx)
-			if err != nil {
-				return deleteModalSubmitMsg{view: currentView, err: fmt.Errorf("today: %w", err), close: true}
-			}
-			return deleteModalSubmitMsg{view: currentView, tasks: today, close: true}
-		case viewUpcoming:
-			upcoming, err := m.app.Upcoming(ctx)
-			if err != nil {
-				return deleteModalSubmitMsg{view: currentView, err: fmt.Errorf("upcoming: %w", err), close: true}
-			}
-			return deleteModalSubmitMsg{view: currentView, tasks: upcoming, close: true}
-		default:
-			return deleteModalSubmitMsg{view: currentView, close: true}
-		}
-	}
 }
 
 func (m Model) currentDay() domain.Day {
@@ -327,15 +234,6 @@ func tasksToItems(ts []domain.Task) []list.Item {
 		items = append(items, taskItem{task: t})
 	}
 	return items
-}
-
-func (m *Model) applyActiveRefresh(todayTasks, upcomingTasks []domain.Task) {
-	m.statusMsg = ""
-	m.todayList.SetItems(tasksToItems(todayTasks))
-	today := m.currentDay()
-	m.lastDay = today
-	m.todayList.SetDelegate(todayItemDelegate{styles: m.styles, currentDay: today})
-	m.upcomingList.SetItems(tasksToItems(upcomingTasks))
 }
 
 func (m Model) selectedTaskID() (int64, bool) {
@@ -367,129 +265,6 @@ func (m Model) selectedActiveTask() (domain.Task, bool) {
 	return ti.task, true
 }
 
-func (m *Model) openAddModal() {
-	m.modal = modalState{kind: modalKindTask, focus: taskModalFocusTitle}
-	m.addInput.SetValue("")
-	m.addInput.Width = taskModalInputWidth(m.width)
-	m.setTaskModalFocus(taskModalFocusTitle)
-}
-
-func (m *Model) openTaskModal(kind modalKind, task domain.Task) {
-	focus := taskModalFocusTitle
-	if kind == modalKindDelete {
-		focus = taskModalFocusDelete
-	}
-	m.modal = modalState{
-		kind:       modalKindTask,
-		taskID:     task.ID,
-		taskTitle:  task.Title,
-		taskDueDay: task.DueDay,
-		focus:      focus,
-	}
-	m.addInput.SetValue(task.Title)
-	m.addInput.Width = taskModalInputWidth(m.width)
-	m.setTaskModalFocus(focus)
-}
-
-func (m *Model) closeModal() {
-	m.modal = modalState{}
-	m.addInput.Blur()
-	m.addInput.SetValue("")
-	m.addInput.Width = m.modalInputWidth()
-}
-
-func (m *Model) setTaskModalFocus(focus taskModalFocus) {
-	m.modal.focus = focus
-	if focus == taskModalFocusTitle {
-		m.addInput.Focus()
-		return
-	}
-	m.addInput.Blur()
-}
-
-func (m *Model) advanceTaskModalFocus() {
-	next := m.modal.focus + 1
-	if next > taskModalFocusDelete {
-		next = taskModalFocusTitle
-	}
-	if m.modal.taskID == 0 && next == taskModalFocusDelete {
-		next = taskModalFocusTitle
-	}
-	m.setTaskModalFocus(next)
-}
-
-func (m Model) modalInputWidth() int {
-	if m.modal.kind == modalKindTask {
-		return taskModalInputWidth(m.width)
-	}
-	return sheetInnerWidth(m.width)
-}
-
-func modalBlocksKey(keys keyMap, msg tea.KeyMsg) bool {
-	return key.Matches(msg, keys.Done) ||
-		key.Matches(msg, keys.Abandon) ||
-		key.Matches(msg, keys.Postpone) ||
-		key.Matches(msg, keys.Edit) ||
-		key.Matches(msg, keys.Delete) ||
-		key.Matches(msg, keys.Add) ||
-		key.Matches(msg, keys.NextView)
-}
-
-func (m Model) handleModalKey(msg tea.KeyMsg) (Model, tea.Cmd, bool) {
-	if m.modal.kind == modalKindNone {
-		return m, nil, false
-	}
-
-	if msg.Type == tea.KeyEsc {
-		m.closeModal()
-		return m, nil, true
-	}
-
-	switch m.modal.kind {
-	case modalKindTask:
-		if msg.Type == tea.KeyTab {
-			m.advanceTaskModalFocus()
-			m.addInput.Width = taskModalInputWidth(m.width)
-			if m.modal.focus == taskModalFocusTitle {
-				return m, m.addInput.Focus(), true
-			}
-			return m, nil, true
-		}
-		if msg.Type == tea.KeyEnter {
-			switch m.modal.focus {
-			case taskModalFocusTitle:
-				return m, nil, true
-			case taskModalFocusSave:
-				if m.modal.submitting || strings.TrimSpace(m.addInput.Value()) == "" {
-					return m, nil, true
-				}
-				m.modal.submitting = true
-				return m, m.cmdSubmitModal(), true
-			case taskModalFocusCancel:
-				m.closeModal()
-				return m, nil, true
-			case taskModalFocusDelete:
-				if m.modal.submitting {
-					return m, nil, true
-				}
-				m.modal.submitting = true
-				return m, m.cmdConfirmDelete(), true
-			}
-		}
-		if m.modal.focus == taskModalFocusTitle {
-			var cmd tea.Cmd
-			m.addInput, cmd = m.addInput.Update(msg)
-			return m, cmd, true
-		}
-		if modalBlocksKey(m.keys, msg) {
-			return m, nil, true
-		}
-		return m, nil, true
-	default:
-		return m, nil, true
-	}
-}
-
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -505,7 +280,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = msg.err.Error()
 			return m, nil
 		}
-		m.applyActiveRefresh(msg.today, msg.upcoming)
+		m.applyActiveRefresh(msg.today, msg.upcoming, msg.hasToday, msg.hasUpcoming)
 		return m, nil
 	case modalSubmitMsg:
 		m.modal.submitting = false
@@ -516,7 +291,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = msg.err.Error()
 			return m, nil
 		}
-		m.applyActiveRefresh(msg.today, msg.upcoming)
+		m.applyActiveRefresh(msg.today, msg.upcoming, msg.hasToday, msg.hasUpcoming)
 		return m, nil
 	case deleteModalSubmitMsg:
 		m.modal.submitting = false
@@ -603,14 +378,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !ok {
 				return m, nil
 			}
-			m.openTaskModal(modalKindEdit, task)
+			m.openEditTaskModal(task)
 			return m, m.addInput.Focus()
 		case key.Matches(msg, m.keys.Delete):
 			task, ok := m.selectedActiveTask()
 			if !ok {
 				return m, nil
 			}
-			m.openTaskModal(modalKindDelete, task)
+			m.openDeleteTaskModal(task)
 			return m, nil
 		case key.Matches(msg, m.keys.Done):
 			id, ok := m.selectedTaskID()
@@ -692,55 +467,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.upcomingList, cmd = m.upcomingList.Update(msg)
 	}
 	return m, cmd
-}
-
-type historyRefreshMsg struct {
-	done          []domain.Task
-	abandoned     []domain.Task
-	activeCreated []domain.Task
-	stats         app.OutcomeRatios
-	hasStats      bool
-	err           error
-}
-
-func (m Model) historySelectedDay() domain.Day {
-	return addDays(m.historyFrom, m.historyIndex)
-}
-
-func (m Model) cmdRefreshHistory(withStats bool) tea.Cmd {
-	day := m.historySelectedDay()
-	from, to := m.historyFrom, m.historyTo
-	return func() tea.Msg {
-		ctx := context.Background()
-		done, err := m.app.HistoryDoneByDay(ctx, day)
-		if err != nil {
-			return historyRefreshMsg{err: err}
-		}
-		ab, err := m.app.HistoryAbandonedByDay(ctx, day)
-		if err != nil {
-			return historyRefreshMsg{err: err}
-		}
-		activeCreated, err := m.app.HistoryActiveByCreatedDay(ctx, day)
-		if err != nil {
-			return historyRefreshMsg{err: err}
-		}
-		if !withStats {
-			return historyRefreshMsg{done: done, abandoned: ab, activeCreated: activeCreated}
-		}
-		stats, err := m.app.Stats(ctx, from, to)
-		if err != nil {
-			return historyRefreshMsg{err: err}
-		}
-		return historyRefreshMsg{done: done, abandoned: ab, activeCreated: activeCreated, stats: stats, hasStats: true}
-	}
-}
-
-func (m Model) cmdRefreshHistorySelectedDay() tea.Cmd {
-	return m.cmdRefreshHistory(false)
-}
-
-func (m Model) cmdRefreshHistoryWithStats() tea.Cmd {
-	return m.cmdRefreshHistory(true)
 }
 
 func (m Model) View() string {

@@ -232,7 +232,7 @@ func TestLoadActiveLists_PrefixesUpcomingError(t *testing.T) {
 	a.upcomingErr = errors.New("boom")
 
 	m := NewWithDeps(a, fakeClock{now: time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)}, time.UTC)
-	_, err := m.loadActiveLists(context.Background())
+	_, err := m.loadActiveLists(context.Background(), true, true)
 	if err == nil || !strings.Contains(err.Error(), "upcoming: boom") {
 		t.Fatalf("expected wrapped upcoming error, got %v", err)
 	}
@@ -325,9 +325,6 @@ func TestModel_Today_AddOpensAddModal(t *testing.T) {
 	if m.modal.taskID != 0 {
 		t.Fatalf("expected add modal task id to be empty, got %d", m.modal.taskID)
 	}
-	if m.modal.taskTitle != "" {
-		t.Fatalf("expected add modal task title to be empty, got %q", m.modal.taskTitle)
-	}
 	if m.addInput.Value() != "" {
 		t.Fatalf("expected add modal input to start empty, got %q", m.addInput.Value())
 	}
@@ -357,9 +354,6 @@ func TestModel_Upcoming_EditOpensEditModalWithPrefilledTitle(t *testing.T) {
 	}
 	if m.modal.taskID != upcoming.ID {
 		t.Fatalf("expected edit modal task id %d, got %d", upcoming.ID, m.modal.taskID)
-	}
-	if m.modal.taskTitle != upcoming.Title {
-		t.Fatalf("expected edit modal task title %q, got %q", upcoming.Title, m.modal.taskTitle)
 	}
 	if m.addInput.Value() != upcoming.Title {
 		t.Fatalf("expected edit input prefilled with %q, got %q", upcoming.Title, m.addInput.Value())
@@ -419,9 +413,6 @@ func TestModel_Upcoming_DeleteOpensUnifiedTaskModal(t *testing.T) {
 	}
 	if m.modal.taskID != upcoming.ID {
 		t.Fatalf("expected delete modal task id %d, got %d", upcoming.ID, m.modal.taskID)
-	}
-	if m.modal.taskTitle != upcoming.Title {
-		t.Fatalf("expected delete modal task title %q, got %q", upcoming.Title, m.modal.taskTitle)
 	}
 	if m.addInput.Value() != upcoming.Title {
 		t.Fatalf("expected delete modal to reuse task title input %q, got %q", upcoming.Title, m.addInput.Value())
@@ -495,7 +486,7 @@ func TestModel_InputModal_Table(t *testing.T) {
 			wantAdded:              []string{"new task"},
 			wantTodayLen:           1,
 			wantTodayCallsDelta:    1,
-			wantUpcomingCallsDelta: 1,
+			wantUpcomingCallsDelta: 0,
 		},
 		{
 			name:         "add esc",
@@ -507,7 +498,7 @@ func TestModel_InputModal_Table(t *testing.T) {
 		},
 		{
 			name:                   "edit submit",
-			open:                   func(m *Model, task domain.Task) { m.openTaskModal(modalKindEdit, task) },
+			open:                   func(m *Model, task domain.Task) { m.openEditTaskModal(task) },
 			seed:                   []domain.Task{{ID: 1, Title: "old", Status: domain.StatusActive, CreatedDay: domain.MustParseDay("2026-03-04"), DueDay: domain.MustParseDay("2026-03-04")}},
 			input:                  "renamed",
 			preKeys:                []tea.KeyMsg{keyTab()},
@@ -518,11 +509,11 @@ func TestModel_InputModal_Table(t *testing.T) {
 			wantTodayLen:           1,
 			wantSelectedTitle:      "renamed",
 			wantTodayCallsDelta:    1,
-			wantUpcomingCallsDelta: 1,
+			wantUpcomingCallsDelta: 0,
 		},
 		{
 			name:              "edit esc",
-			open:              func(m *Model, task domain.Task) { m.openTaskModal(modalKindEdit, task) },
+			open:              func(m *Model, task domain.Task) { m.openEditTaskModal(task) },
 			seed:              []domain.Task{{ID: 1, Title: "old", Status: domain.StatusActive, CreatedDay: domain.MustParseDay("2026-03-04"), DueDay: domain.MustParseDay("2026-03-04")}},
 			input:             "ignored",
 			key:               keyEsc(),

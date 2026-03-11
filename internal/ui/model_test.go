@@ -886,10 +886,13 @@ func TestModel_View_RendersAddModalSmoke(t *testing.T) {
 	if modalLine == "" {
 		t.Fatalf("expected unified modal header in view, got %q", out)
 	}
-	for _, want := range []string{"> Add task", "[Save]", "[Cancel]"} {
+	for _, want := range []string{"Add Task", "[Save]", "[Cancel]"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected unified add modal content %q in view, got %q", want, out)
 		}
+	}
+	if strings.Contains(out, "> Add task") {
+		t.Fatalf("expected add modal input placeholder to be empty, got %q", out)
 	}
 	for _, unwanted := range []string{"| Title", "| Actions"} {
 		if strings.Contains(out, unwanted) {

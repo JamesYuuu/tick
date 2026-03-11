@@ -107,7 +107,7 @@ func NewWithDeps(a appClient, clk clock, loc *time.Location) Model {
 	m := Model{app: a, view: viewToday, keys: defaultKeyMap(), styles: defaultStyles(), clock: clk, loc: loc}
 
 	t := textinput.New()
-	t.Placeholder = "Add task"
+	t.Placeholder = ""
 	t.Prompt = "> "
 	t.CharLimit = 200
 	m.addInput = t

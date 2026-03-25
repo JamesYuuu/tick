@@ -91,7 +91,6 @@ jobs:
               "formula": "tick",
               "tag": "${TAG}",
               "version": "${version}",
-              "tarball_url": "${source_tarball_url}",
               "source_tarball_url": "${source_tarball_url}",
               "release_url": "${release_url}",
               "package_type": "python"

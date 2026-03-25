@@ -1,0 +1,41 @@
+[project]
+name = "tick"
+version = "0.1.0"
+description = "Textual todo app with a Python SQLite backend"
+requires-python = ">=3.11"
+dependencies = [
+    "textual>=0.82,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.11",
+]
+
+[project.scripts]
+tick = "tick.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+tick = ["*.tcss"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

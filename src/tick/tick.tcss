@@ -1,0 +1,184 @@
+Screen {
+    layout: vertical;
+    align: center middle;
+    background: #35384c;
+    color: #f5f7ff;
+}
+
+#app-shell {
+    layout: vertical;
+    width: 92;
+    max-width: 100%;
+    height: 29;
+    max-height: 100%;
+}
+
+#top-bar {
+    height: 1;
+    width: 1fr;
+    padding: 0 1;
+    margin-bottom: 1;
+    background: transparent;
+    color: #f5f7ff;
+}
+
+#brand {
+    width: 6;
+    color: #f5f7ff;
+    text-style: bold;
+}
+
+#tab-strip {
+    width: 1fr;
+    color: #d7dcf7;
+}
+
+#today-date {
+    width: 16;
+    color: #c4cae6;
+    text-style: dim;
+    text-align: right;
+}
+
+.pane-frame {
+    height: 1fr;
+    padding: 0 1 1 1;
+    border: round #c7cdef;
+    min-height: 10;
+}
+
+#main-pane {
+    layout: vertical;
+    height: 1fr;
+}
+
+#main-table {
+    overflow-x: hidden;
+    scrollbar-size-horizontal: 0;
+}
+
+.task-table {
+    height: 1fr;
+    background: #35384c;
+    color: #f5f7ff;
+    border: none;
+    text-align: center;
+}
+
+.task-table > .datatable--header {
+    height: 3;
+    background: #3d425b;
+    color: #d7dcf7;
+    border-bottom: solid #676e95;
+    text-style: bold;
+    text-align: center;
+}
+
+.task-table > .datatable--cursor {
+    background: #49588e;
+    color: #f5f7ff;
+    text-style: bold;
+}
+
+.task-table:focus > .datatable--cursor {
+    background: #5b6fcf;
+    color: #f5f7ff;
+    text-style: bold;
+}
+
+.task-table > .datatable--fixed-cursor {
+    background: #49588e;
+    color: #f5f7ff;
+    text-style: bold;
+}
+
+.task-table:focus > .datatable--fixed-cursor {
+    background: #5b6fcf;
+    color: #f5f7ff;
+    text-style: bold;
+}
+
+.task-table > .datatable--header-cursor,
+.task-table > .datatable--header-hover,
+.task-table > .datatable--hover {
+    background: transparent;
+    color: #f5f7ff;
+    text-style: bold;
+    border: none;
+}
+
+.task-table > .datatable--fixed {
+    background: transparent;
+}
+
+.task-table > .datatable--odd-row {
+    background: transparent;
+}
+
+.task-table > .datatable--even-row {
+    background: transparent;
+}
+
+.history-strip {
+    layout: horizontal;
+    height: 2;
+    padding: 0 0 0 0;
+    margin-bottom: 1;
+    color: #c4cae6;
+    text-style: bold;
+}
+
+.history-day {
+    width: 1fr;
+    text-align: center;
+    content-align: center middle;
+    color: #c4cae6;
+    text-style: bold;
+}
+
+.history-day.is-selected {
+    background: #5b6fcf;
+    color: #f5f7ff;
+}
+
+#modal-shell {
+    width: 60;
+    height: auto;
+    padding: 1 2;
+    border: round #c7cdef;
+    background: #35384c;
+    align: center middle;
+}
+
+#modal-title {
+    margin-bottom: 1;
+    color: #f5f7ff;
+    text-style: bold;
+}
+
+#task-input {
+    margin-bottom: 1;
+}
+
+#modal-help,
+#confirm-body {
+    color: #c4cae6;
+    text-style: dim;
+}
+
+#status-bar {
+    height: 1;
+    padding: 0 1;
+    margin-top: 1;
+    color: #d7dcf7;
+    background: transparent;
+    text-style: bold;
+}
+
+#key-help {
+    height: 3;
+    padding: 0 1;
+    background: transparent;
+    color: #c4cae6;
+    text-style: dim;
+}

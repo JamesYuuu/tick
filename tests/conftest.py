@@ -14,3 +14,8 @@ class FixedDayBackend(TickBackend):
 
     def current_day(self) -> str:
         return self._today
+
+
+async def settle(pilot, pauses: int = 1) -> None:
+    for _ in range(pauses):
+        await pilot.pause()

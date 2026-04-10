@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from tick.backend import BackendError, TickBackend
+from tick.history import weighted_widths
 
 from conftest import FixedDayBackend
 
@@ -176,3 +177,13 @@ def test_default_db_path_prefers_xdg_data_home() -> None:
 
         assert str(backend.db_path).startswith(temp_dir)
         assert backend.db_path == Path(temp_dir) / "tick" / "todo.db"
+
+
+def test_weighted_widths_with_zero_total_width() -> None:
+    assert weighted_widths(0, (1, 1)) == (0, 0)
+    assert weighted_widths(-5, (1, 4, 2)) == (0, 0, 0)
+
+
+def test_weighted_widths_with_zero_weights() -> None:
+    assert weighted_widths(100, (0, 0, 0)) == (0, 0, 0)
+    assert weighted_widths(0, (0, 0)) == (0, 0)

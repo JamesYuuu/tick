@@ -1,139 +1,47 @@
 from __future__ import annotations
 
-import asyncio
 from collections import deque
 from collections.abc import Sequence
-from dataclasses import dataclass
-from datetime import date, timedelta
-from typing import Callable, Literal
+from datetime import timedelta
+from typing import Literal
 
 from textual import events, on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal
 from textual.css.query import NoMatches
-from textual.screen import ModalScreen
-from textual.widgets import DataTable, Input, Label, Static
+from textual.widgets import DataTable, Static
 from rich.text import Text
 
-from .backend import BackendError, Snapshot, Task, TickBackend
+from .backend import Snapshot, Task, TickBackend
+from .dispatcher import AppDispatcher
+from .help_text import HELP_ROWS, render_help_text
+from .history import HistoryRow, format_top_bar_day, parse_day
+from .screens import ConfirmScreen, TaskEditorScreen
+from .table_view import (
+    TABLE_HEADER_HEIGHT,
+    TableView,
+    build_history_rows,
+)
 
 
 Severity = Literal["information", "warning", "error"]
-
-
-def parse_day(value: str) -> date:
-    return date.fromisoformat(value)
-
-
-def format_mmdd(value: str) -> str:
-    return parse_day(value).strftime("%m-%d")
-
-
-def format_top_bar_day(value: str) -> str:
-    return parse_day(value).strftime("%Y-%m-%d %a")
 
 
 def normalize_title(value: str) -> str:
     return " ".join(value.split())
 
 
-def weighted_widths(total_width: int, weights: Sequence[int]) -> tuple[int, ...]:
-    if total_width <= 0:
-        return tuple(0 for _ in weights)
-    total_weight = sum(weights)
-    widths = [(total_width * weight) // total_weight for weight in weights]
-    remainders = [(total_width * weight) % total_weight for weight in weights]
-    remaining = total_width - sum(widths)
-    for index in sorted(range(len(weights)), key=lambda i: remainders[i], reverse=True)[:remaining]:
-        widths[index] += 1
-    while any(width == 0 for width in widths) and any(width > 1 for width in widths):
-        smallest = widths.index(0)
-        largest = max(range(len(widths)), key=lambda i: widths[i])
-        widths[largest] -= 1
-        widths[smallest] += 1
-    return tuple(widths)
-
-
-class TaskEditorScreen(ModalScreen[str | None]):
-    def __init__(self, title: str, initial_value: str = "") -> None:
-        super().__init__()
-        self.screen_title = title
-        self.initial_value = initial_value
-
-    def compose(self) -> ComposeResult:
-        with Container(id="modal-shell"):
-            yield Label(self.screen_title, id="modal-title")
-            yield Input(value=self.initial_value, placeholder="Task title", id="task-input")
-            yield Label("Enter submit, Esc cancel", id="modal-help")
-
-    def on_mount(self) -> None:
-        self.query_one(Input).focus()
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        self.dismiss(event.value)
-
-    def key_escape(self) -> None:
-        self.dismiss(None)
-
-
-class ConfirmScreen(ModalScreen[bool]):
-    def __init__(self, title: str, body: str) -> None:
-        super().__init__()
-        self.screen_title = title
-        self.body = body
-
-    def compose(self) -> ComposeResult:
-        with Container(id="modal-shell", classes="confirm"):
-            yield Label(self.screen_title, id="modal-title")
-            yield Static(self.body, id="confirm-body")
-            yield Label("y confirm, n / Esc cancel", id="modal-help")
-
-    def key_y(self) -> None:
-        self.dismiss(True)
-
-    def key_n(self) -> None:
-        self.dismiss(False)
-
-    def key_escape(self) -> None:
-        self.dismiss(False)
-
-
-@dataclass
-class HistoryRow:
-    marker: str
-    title: str
-    due_day: str
-    context: str
-
-
 class TickTextualApp(App[None]):
     CSS_PATH = "tick.tcss"
     HISTORY_WINDOW_DAYS = 7
-    HISTORY_STATE_COLUMN_WIDTH = 8
     HELP_LABEL_WIDTH = 9
     HELP_ITEM_WIDTH = 13
-    TABLE_ROW_HEIGHT = 3
-    TABLE_HEADER_HEIGHT = 3
     BRAND_LABEL = "tick"
     TAB_ORDER = ("today", "upcoming", "history")
     TAB_LABELS = {"today": "Today", "upcoming": "Upcoming", "history": "History"}
     TASK_TABLES = {"today": "today_rows", "upcoming": "upcoming_rows"}
-    HELP_ROWS = {
-        "today": (
-            ("task", "x done", "b abandon", "p postpone"),
-            ("EDIT", "a add", "e edit", "d delete"),
-            ("FOCUS", "↑↓ move", "tab switch", "r refresh", "q quit"),
-        ),
-        "upcoming": (
-            ("EDIT", "e edit", "d delete"),
-            ("FOCUS", "↑↓ move", "tab switch", "r refresh", "q quit"),
-        ),
-        "history": (
-            ("DATE", "← back", "→ forward"),
-            ("FOCUS", "↑↓ move", "tab switch", "r refresh", "q quit"),
-        ),
-    }
+    HELP_ROWS = HELP_ROWS
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("tab", "next_tab", "Next Tab", priority=True),
@@ -144,8 +52,8 @@ class TickTextualApp(App[None]):
         Binding("x", "done_task", "Done", show=False),
         Binding("b", "abandon_task", "Abandon", show=False),
         Binding("p", "postpone_task", "Postpone", show=False),
-        Binding("left", "history_prev_day", "Prev Day", show=False, priority=True),
-        Binding("right", "history_next_day", "Next Day", show=False, priority=True),
+        Binding("left", "history_prev_day", "Prev Day", show=False),
+        Binding("right", "history_next_day", "Next Day", show=False),
         Binding("r", "refresh", "Refresh"),
     ]
 
@@ -165,14 +73,10 @@ class TickTextualApp(App[None]):
         self._rendered_status_bar: str | None = None
         self._render_scheduled = False
         self._tables_dirty = False
-        self._configured_tab: str | None = None
-        self._snapshot_loading = False
-        self._snapshot_request_id = 0
-        self._snapshot_processed_id = 0
-        self._snapshot_waiters: dict[int, list[asyncio.Future[None]]] = {}
-        self._mutation_lock = asyncio.Lock()
         self._pending_flash_messages: deque[str] = deque()
         self._selected_rows: dict[str, int | None] = {tab: None for tab in self.TAB_ORDER}
+        self.dispatcher = AppDispatcher(self)
+        self._table_view: TableView | None = None
 
     def compose(self) -> ComposeResult:
         with Container(id="app-shell"):
@@ -188,66 +92,28 @@ class TickTextualApp(App[None]):
                     id="main-table",
                     classes="task-table",
                     cursor_type="row",
-                    header_height=self.TABLE_HEADER_HEIGHT,
+                    header_height=TABLE_HEADER_HEIGHT,
                 )
             yield Static(id="status-bar")
             yield Static(id="key-help")
 
     def on_mount(self) -> None:
-        self._prepare_table()
+        self._table_view = TableView(self._table())
+        self._table_view.prepare()
         self._schedule_render()
-        self._request_snapshot()
+        self.dispatcher.request_snapshot()
 
-    def _start_snapshot_worker(self) -> None:
-        if self._snapshot_loading:
-            return
-        self._snapshot_loading = True
-        self.run_worker(self._drain_snapshot_requests(), group="snapshot")
+    def load_snapshot(self) -> Snapshot:
+        return self.backend.snapshot(self.history_day)
 
-    def _enqueue_snapshot_request(self) -> int:
-        self._snapshot_request_id += 1
-        self._start_snapshot_worker()
-        return self._snapshot_request_id
+    def apply_snapshot(self, snapshot: Snapshot) -> None:
+        self._apply_snapshot(snapshot)
 
-    def _prepare_table(self) -> None:
-        self._table().show_horizontal_scrollbar = False
+    def show_feedback(self, message: str, *, severity: Severity = "information") -> None:
+        self._show_feedback(message, severity=severity)
 
-    def _request_snapshot(self) -> None:
-        self._enqueue_snapshot_request()
-
-    def _request_snapshot_future(self) -> asyncio.Future[None]:
-        request_id = self._enqueue_snapshot_request()
-        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        self._snapshot_waiters.setdefault(request_id, []).append(future)
-        return future
-
-    async def _drain_snapshot_requests(self) -> None:
-        try:
-            while self._snapshot_processed_id < self._snapshot_request_id:
-                target_request_id = self._snapshot_request_id
-                try:
-                    snapshot = await asyncio.to_thread(self.backend.snapshot, self.history_day)
-                except BackendError as exc:
-                    self._show_feedback(str(exc), severity="error")
-                else:
-                    self._apply_snapshot(snapshot)
-                self._snapshot_processed_id = target_request_id
-                self._resolve_snapshot_waiters()
-        finally:
-            self._snapshot_loading = False
-            if self._snapshot_processed_id < self._snapshot_request_id:
-                self._start_snapshot_worker()
-
-    def _resolve_snapshot_waiters(self) -> None:
-        ready = [
-            request_id
-            for request_id in self._snapshot_waiters
-            if request_id <= self._snapshot_processed_id
-        ]
-        for request_id in sorted(ready):
-            for future in self._snapshot_waiters.pop(request_id):
-                if not future.done():
-                    future.set_result(None)
+    def queue_flash_message(self, message: str) -> None:
+        self._pending_flash_messages.append(message)
 
     def _apply_snapshot(self, snapshot: Snapshot) -> None:
         self.snapshot_data = snapshot
@@ -256,7 +122,7 @@ class TickTextualApp(App[None]):
         self._coerce_history_strip_window(snapshot.current_day)
         self.today_rows = snapshot.today
         self.upcoming_rows = snapshot.upcoming
-        self.history_rows = self._build_history_rows(snapshot)
+        self.history_rows = build_history_rows(snapshot)
         self._tables_dirty = True
         self.sub_title = f"Today {snapshot.current_day}"
         if self._pending_flash_messages:
@@ -315,55 +181,27 @@ class TickTextualApp(App[None]):
 
     def _flush_render(self) -> None:
         self._render_scheduled = False
-        table = self._table()
-        self._configure_table(table)
+        tv = self._table_view
+        assert tv is not None
+        columns_changed = tv.configure(self.active_tab)
+        if columns_changed:
+            self._tables_dirty = True
         if self._tables_dirty:
-            self._fill_table(
-                table,
+            current_day = self.snapshot_data.current_day if self.snapshot_data else None
+            result = tv.fill(
+                self.active_tab,
                 self._active_rows(),
-                self._render_active_row,
-                self._empty_row(),
+                current_day,
                 self._selected_rows[self.active_tab],
             )
+            self._selected_rows[self.active_tab] = result
             self._tables_dirty = False
-        self._balance_table_columns(table)
+        tv.balance_columns(self.active_tab)
         self._render_history_strip()
         self._render_top_bar()
         self._render_status_bar()
         self._render_key_help()
         self._focus_table()
-
-    def _balance_task_due_columns(self, table: DataTable) -> None:
-        if table.size.width <= 0:
-            return
-        padding = 2 * table.cell_padding
-        available_width = max(2, table.size.width - (2 * padding))
-        task_width, due_width = weighted_widths(available_width, (1, 1))
-        table.columns["task"].auto_width = False  # type: ignore[index]
-        table.columns["task"].width = task_width  # type: ignore[index]
-        table.columns["due"].auto_width = False  # type: ignore[index]
-        table.columns["due"].width = due_width  # type: ignore[index]
-        table.refresh(layout=True)
-
-    def _balance_history_columns(self, table: DataTable) -> None:
-        if table.size.width <= 0:
-            return
-        padding = 2 * table.cell_padding
-        available_width = max(3, table.size.width - (3 * padding))
-        state_width, task_width, due_width = weighted_widths(available_width, (1, 4, 2))
-        table.columns["state"].auto_width = False  # type: ignore[index]
-        table.columns["state"].width = state_width  # type: ignore[index]
-        table.columns["task"].auto_width = False  # type: ignore[index]
-        table.columns["task"].width = task_width  # type: ignore[index]
-        table.columns["due"].auto_width = False  # type: ignore[index]
-        table.columns["due"].width = due_width  # type: ignore[index]
-        table.refresh(layout=True)
-
-    def _balance_table_columns(self, table: DataTable) -> None:
-        if self.active_tab == "history":
-            self._balance_history_columns(table)
-        else:
-            self._balance_task_due_columns(table)
 
     def _render_history_strip(self) -> None:
         strip = self.query_one("#history-days", Horizontal)
@@ -437,114 +275,12 @@ class TickTextualApp(App[None]):
             else:
                 cell.remove_class("is-selected")
 
-    def _configure_table(self, table: DataTable) -> None:
-        if self._configured_tab == self.active_tab:
-            return
-        table.clear(columns=True)
-        for label, key, width in self._column_specs():
-            if width is None:
-                table.add_column(self._padded_text(label), key=key)
-            else:
-                table.add_column(self._padded_text(label), key=key, width=width)
-        self._configured_tab = self.active_tab
-        self._tables_dirty = True
-
-    def _column_specs(self) -> tuple[tuple[str, str, int | None], ...]:
-        if self.active_tab == "history":
-            return (
-                ("State", "state", self.HISTORY_STATE_COLUMN_WIDTH),
-                ("Task", "task", None),
-                ("Due", "due", None),
-            )
-        return (("Task", "task", None), ("Due", "due", None))
-
     def _active_rows(self) -> Sequence[object]:
         if self.active_tab == "today":
             return self.today_rows
         if self.active_tab == "upcoming":
             return self.upcoming_rows
         return self.history_rows
-
-    def _render_active_row(self, row: object) -> tuple[str, ...]:
-        if isinstance(row, HistoryRow):
-            return self._history_cells(row)
-        if not isinstance(row, Task):
-            raise TypeError(f"unsupported row type: {type(row)!r}")
-        return self._task_cells(row)
-
-    def _empty_row(self) -> tuple[str, ...]:
-        if self.active_tab == "today":
-            return (
-                self._padded_text("Nothing due today."),
-                self._padded_text("Press a in Today to add one."),
-            )
-        if self.active_tab == "upcoming":
-            return (
-                self._padded_text("No upcoming tasks."),
-                self._padded_text("Press a in Today to add one."),
-            )
-        return (
-            self._padded_text("·"),
-            self._padded_text("No history updates for this day."),
-            self._padded_text("Try ← / → to browse."),
-        )
-
-    def _padded_text(self, value: str) -> str:
-        return f"\n{value}\n"
-
-    def _fill_table(
-        self,
-        table: DataTable,
-        rows: Sequence[object],
-        render_row: Callable[[object], tuple[str, ...]],
-        empty_row: tuple[str, ...],
-        selected_row: int | None = None,
-    ) -> None:
-        previous = selected_row if selected_row is not None else 0
-        table.clear(columns=False)
-        if not rows:
-            table.add_row(*empty_row, height=self.TABLE_ROW_HEIGHT)
-            table.cursor_type = "none"
-            self._selected_rows[self.active_tab] = None
-            return
-        table.cursor_type = "row"
-        active_row = min(previous, len(rows) - 1)
-        for row in rows:
-            table.add_row(*render_row(row), height=self.TABLE_ROW_HEIGHT)
-        table.move_cursor(row=active_row, animate=False)
-        self._selected_rows[self.active_tab] = active_row
-
-    def _build_history_rows(self, snapshot: Snapshot) -> list[HistoryRow]:
-        rows: list[HistoryRow] = []
-        for t in snapshot.history.done:
-            rows.append(HistoryRow("done", t.title, t.due_day, "finished"))
-        for t in snapshot.history.abandoned:
-            rows.append(HistoryRow("drop", t.title, t.due_day, "dropped"))
-        for t in snapshot.history.active_due:
-            rows.append(HistoryRow("late", t.title, t.due_day, "still open"))
-        return rows
-
-    def _task_due_label(self, task: Task) -> str:
-        if self.snapshot_data is None:
-            return format_mmdd(task.due_day)
-        delta = (parse_day(task.due_day) - parse_day(self.snapshot_data.current_day)).days
-        if delta < 0:
-            return f"{format_mmdd(task.due_day)}  overdue by {abs(delta)}d"
-        if delta == 0:
-            return f"{format_mmdd(task.due_day)}  due today"
-        return f"{format_mmdd(task.due_day)}  in {delta}d"
-
-    def _task_cells(self, task: Task) -> tuple[str, str]:
-        due = self._task_due_label(task)
-        return (self._padded_text(task.title), self._padded_text(due))
-
-    def _history_cells(self, row: HistoryRow) -> tuple[str, str, str]:
-        due = f"{format_mmdd(row.due_day)}  {row.context}"
-        return (
-            self._padded_text(row.marker),
-            self._padded_text(row.title),
-            self._padded_text(due),
-        )
 
     def _render_top_bar(self) -> None:
         tab_strip = self.query_one("#tab-strip", Static)
@@ -559,20 +295,14 @@ class TickTextualApp(App[None]):
         today_date.update(self.current_day_label)
 
     def _render_key_help(self) -> None:
-        def row(label: str, *items: str) -> str:
-            return (
-                f"{label:<{self.HELP_LABEL_WIDTH}}"
-                + "".join(f"{item:<{self.HELP_ITEM_WIDTH}}" for item in items)
-            ).rstrip()
-
-        text = "\n".join(row(*items) for items in self.HELP_ROWS[self.active_tab])
+        text = render_help_text(self.active_tab, self.HELP_LABEL_WIDTH, self.HELP_ITEM_WIDTH)
         if text == self._rendered_key_help:
             return
         self._rendered_key_help = text
         self.query_one("#key-help", Static).update(text)
 
-    def _render_status_bar(self, message: str | None = None) -> None:
-        text = self.flash_message if message is None else message
+    def _render_status_bar(self) -> None:
+        text = self.flash_message
         if text == self._rendered_status_bar:
             return
         self._rendered_status_bar = text
@@ -608,7 +338,7 @@ class TickTextualApp(App[None]):
     def action_refresh(self, announce: bool = True) -> None:
         if announce:
             self._set_flash("Refreshing snapshot")
-        self._request_snapshot()
+        self.dispatcher.request_snapshot()
 
     def _selected_task(self) -> Task | None:
         rows_name = self.TASK_TABLES.get(self.active_tab)
@@ -625,17 +355,7 @@ class TickTextualApp(App[None]):
         return rows[row] if 0 <= row < len(rows) else None
 
     async def _run_mutation(self, backend_fn, *args, feedback_fn=None) -> None:
-        async with self._mutation_lock:
-            try:
-                result = await asyncio.to_thread(backend_fn, *args)
-            except BackendError as exc:
-                self._show_feedback(str(exc), severity="error")
-                return
-            if feedback_fn:
-                message = feedback_fn(result)
-                self._pending_flash_messages.append(message)
-                self.notify(message)
-            await self._request_snapshot_future()
+        await self.dispatcher.run_mutation(backend_fn, *args, feedback_fn=feedback_fn)
 
     def action_add_task(self) -> None:
         if self.active_tab != "today":

@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 import os
 import sqlite3
+from typing import Literal
 
 _TASK_COLUMNS = "id, title, status, created_day, due_day, done_day, abandoned_day"
 
@@ -151,28 +152,28 @@ class TickBackend:
 
     def postpone(self, task_id: int) -> None:
         current_day = date.fromisoformat(self.current_day())
-        task = self._get_task(task_id)
-        if task.status != "active":
-            raise BackendError("postpone task: task not found or not active")
-        base_day = max(current_day, date.fromisoformat(task.due_day))
-        due_day = (base_day + timedelta(days=1)).isoformat()
-        self._require_active_update(
-            "UPDATE tasks SET due_day = ? WHERE id = ? AND status = 'active'",
-            (due_day, task_id),
-            "postpone task",
-        )
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                f"SELECT {_TASK_COLUMNS} FROM tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+            if row is None or row["status"] != "active":
+                raise BackendError("postpone task: task not found or not active")
+            base_day = max(current_day, date.fromisoformat(str(row["due_day"])))
+            due_day = (base_day + timedelta(days=1)).isoformat()
+            cursor = conn.execute(
+                "UPDATE tasks SET due_day = ? WHERE id = ? AND status = 'active'",
+                (due_day, task_id),
+            )
+            conn.commit()
+            if cursor.rowcount == 0:
+                raise BackendError("postpone task: task not found or not active")
 
     def current_day(self) -> str:
         return datetime.now().astimezone().date().isoformat()
 
-    def _list_active(self, op: str, current_day: str) -> list[Task]:
-        return self._query_by_status(
-            f"status = 'active' AND due_day {op} ?",
-            (current_day,),
-            order_by="due_day ASC, id ASC",
-        )
-
-    def _list_active_conn(self, conn: sqlite3.Connection, op: str, current_day: str) -> list[Task]:
+    def _list_active_conn(
+        self, conn: sqlite3.Connection, op: Literal["<=", ">"], current_day: str
+    ) -> list[Task]:
         return self._query_by_status_conn(
             conn,
             f"status = 'active' AND due_day {op} ?",
@@ -180,14 +181,8 @@ class TickBackend:
             order_by="due_day ASC, id ASC",
         )
 
-    def _list_done(self, selected_day: str) -> list[Task]:
-        return self._query_by_status("status = 'done' AND done_day = ?", (selected_day,))
-
     def _list_done_conn(self, conn: sqlite3.Connection, selected_day: str) -> list[Task]:
         return self._query_by_status_conn(conn, "status = 'done' AND done_day = ?", (selected_day,))
-
-    def _list_abandoned(self, selected_day: str) -> list[Task]:
-        return self._query_by_status("status = 'abandoned' AND abandoned_day = ?", (selected_day,))
 
     def _list_abandoned_conn(self, conn: sqlite3.Connection, selected_day: str) -> list[Task]:
         return self._query_by_status_conn(
@@ -203,14 +198,6 @@ class TickBackend:
             (selected_day, current_day),
         )
 
-    def _query_by_status(
-        self, where: str, params: tuple[object, ...], *, order_by: str = "id ASC"
-    ) -> list[Task]:
-        query = f"SELECT {_TASK_COLUMNS} FROM tasks WHERE {where} ORDER BY {order_by}"
-        with closing(self._connect()) as conn:
-            rows = conn.execute(query, params).fetchall()
-        return [self._task_from_row(row) for row in rows]
-
     def _query_by_status_conn(
         self,
         conn: sqlite3.Connection,
@@ -222,16 +209,6 @@ class TickBackend:
         query = f"SELECT {_TASK_COLUMNS} FROM tasks WHERE {where} ORDER BY {order_by}"
         rows = conn.execute(query, params).fetchall()
         return [self._task_from_row(row) for row in rows]
-
-    def _get_task(self, task_id: int) -> Task:
-        tasks = self._query_by_status("id = ?", (task_id,))
-        if not tasks:
-            raise BackendError("task not found")
-        return tasks[0]
-
-    def _stats(self, from_day: str, to_day: str) -> HistoryStats:
-        with closing(self._connect()) as conn:
-            return self._stats_conn(conn, from_day, to_day)
 
     def _stats_conn(self, conn: sqlite3.Connection, from_day: str, to_day: str) -> HistoryStats:
         done_total, done_delayed = conn.execute(
@@ -260,8 +237,9 @@ class TickBackend:
     def _require_active_update(self, query: str, params: tuple[object, ...], action: str) -> None:
         with closing(self._connect()) as conn:
             cursor = conn.execute(query, params)
+            affected = cursor.rowcount
             conn.commit()
-        if cursor.rowcount == 0:
+        if affected == 0:
             raise BackendError(f"{action}: task not found or not active")
 
     def _ensure_database(self) -> None:
